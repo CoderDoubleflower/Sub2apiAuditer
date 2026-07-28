@@ -22,7 +22,7 @@
 <a href="#" onclick="switchTab('help');return false">Help</a>
 </div>
 <div class="info">
-<span id="info-listen"></span>
+<span id="info-listen" title="Petsitter listening address"></span>
 <span><span class="label">v</span><span id="info-version">--</span></span>
 <div class="exit-btn btn" onclick="shutdownPetsitter()" title="Shutdown &amp; restore configuration">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
@@ -59,7 +59,7 @@
 <div class="card-title">
 <h2>Available Tricks</h2>
 <div class="card-tools">
-<input type="text" id="trick-search" class="input-sm" placeholder="Search..." oninput="filterAvailable()">
+<input type="text" id="trick-search" class="input-sm" placeholder="Search..." title="Filter available tricks by name, keyword, or description" oninput="filterAvailable()">
 <div class="btn-group" id="sort-group">
 <button class="btn btn-sm btn-sort active" data-sort="alpha" onclick="setSort('alpha')" title="Alphabetical">
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><text x="2" y="20" font-size="18" font-family="sans-serif" font-weight="700">A</text><line x1="16" y1="6" x2="22" y2="6"/><line x1="16" y1="11" x2="22" y2="11"/><line x1="16" y1="16" x2="22" y2="16"/></svg>
@@ -73,8 +73,8 @@
 <div class="section-desc">Built-in tricks you can load from the project's tricks directory.</div>
 <div id="available-tricks"><div class="loader">Loading...</div></div>
 <div class="custom-path">
-<input type="text" id="custom-path" placeholder="Path to trick .py file">
-<button class="btn btn-neutral" onclick="loadCustomTrick()">Add</button>
+<input type="text" id="custom-path" placeholder="Path to trick .py file" title="Absolute path to a custom trick Python file">
+<button class="btn btn-neutral" onclick="loadCustomTrick()" title="Load custom trick from path">Add</button>
 </div>
 </div>
 </div>
@@ -114,14 +114,14 @@
 <div class="log-controls">
 <h2 style="margin:0">Activity Log</h2>
 
-<select id="level-filter" onchange="changeLogLevel()">
+<select id="level-filter" onchange="changeLogLevel()" title="Filter log entries by level">
 <option value="">All levels</option>
 <option value="INFO">INFO</option>
 <option value="DEBUG">DEBUG</option>
 <option value="WARNING">WARNING</option>
 <option value="ERROR">ERROR</option>
 </select>
-<button class="btn btn-secondary btn-sm" onclick="clearLogDisplay()">Clear</button>
+<button class="btn btn-secondary btn-sm" onclick="clearLogDisplay()" title="Clear all log entries">Clear</button>
 <span class="log-count" id="log-count"></span>
 </div>
 <div class="log-viewer" id="log-viewer"><div class="loader">Loading logs...</div></div>
@@ -132,7 +132,7 @@
 <div class="tab-pane" id="tab-help">
 <div class="card">
 <div style="margin-bottom:16px">
-<button class="btn btn-accent" id="btn-install-examples" onclick="installExamples()">Install Examples</button>
+<button class="btn btn-accent" id="btn-install-examples" onclick="installExamples()" title="Install example tricksets and tricks">Install Examples</button>
 <div id="install-examples-result" style="margin-top:8px"></div>
 </div>
 <div id="help-content"><div class="loader">Loading help...</div></div>
