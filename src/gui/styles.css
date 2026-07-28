@@ -579,6 +579,11 @@ header .nav a:hover { background: #1a2a4d; }
 .btn-sort:hover { background: #1a2a4d; color: #8ab4ff; border-color: #2a4a6a; }
 .btn-sort.active { background: #1a3a5a; color: #8ab4ff; border-color: #2a4a6a; }
 
+.card-tools { display: flex; align-items: center; gap: 6px; }
+.input-sm { padding: 4px 8px; background: #0f0f23; color: #8ab4ff; font-size: 12px; line-height: 1; border: 1px solid #1e2a3a; border-radius: 4px; width: 130px; }
+.input-sm:focus { outline: none; border-color: #2a4a6a; background: #1a2a4d; }
+.input-sm::placeholder { color: #4a6572; }
+
 /* buttons */
 .btn {
   display: inline-flex;
