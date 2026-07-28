@@ -48,6 +48,7 @@ header .info .exit-btn {
   border-radius: 3px;
 }
 header .info .exit-btn:hover { color: #ff6b8a; background: #2a1a1a; }
+header #info-listen { background: #0f1a2a; padding: 1px 6px; border-radius: 3px; color: #5a8ab5; font-family: monospace; }
 header .nav { display: flex; gap: 6px; align-items: center; }
 header .nav a {
   color: #5a8ab5;
