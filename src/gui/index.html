@@ -40,10 +40,10 @@
 <div class="ts-bar" id="ts-bar">
 <div class="ts-pills" id="ts-pills"></div>
 <div class="ts-filters">
-<span onclick="editFilter(this,'X-Title')">X-Title: <span class="val" id="ts-fx">*</span></span>
-<span onclick="editFilter(this,'Model')">Model: <span class="val" id="ts-fm">*</span></span>
-<span onclick="editName()">Name: <span class="val" id="ts-name"></span></span>
-<span class="ts-delete" onclick="if (confirm('Delete trickset "' + selectedTrickset + '"? This cannot be undone.')) deleteTrickset()">delete</span>
+<span onclick="editFilter(this,'X-Title')" title="Filter by X-Title header value">X-Title: <span class="val" id="ts-fx">*</span></span>
+<span onclick="editFilter(this,'Model')" title="Filter by Model header value">Model: <span class="val" id="ts-fm">*</span></span>
+<span onclick="editName()" title="Rename this trickset">Name: <span class="val" id="ts-name"></span></span>
+<span class="ts-delete" onclick="if (confirm('Delete trickset \"' + selectedTrickset + '\"? This cannot be undone.')) deleteTrickset()" title="Delete this trickset">delete</span>
 </div>
 </div>
 
@@ -98,7 +98,7 @@
 <div class="agent-log-panel" id="agent-log-panel">
 <div class="agent-log-header">
 <span id="agent-log-title">Setting up...</span>
-<button class="btn btn-sm btn-secondary" onclick="closeAgentLog()">Close</button>
+<button class="btn btn-sm btn-secondary" onclick="closeAgentLog()" title="Close agent setup log">Close</button>
 </div>
 <div class="agent-log-content" id="agent-log-content"><div class="loader">Starting...</div></div>
 <div class="agent-log-status" id="agent-log-status"></div>
@@ -340,7 +340,7 @@ async function fetchAvailable() {
       const triggerHtml = f.prompt_keyword ? `<span class="trigger-word">${escapeHtml(f.prompt_keyword)}</span>` : '';
       const badgeHtml = badges.length || triggerHtml ? `<div class="trick-meta">${badges.join('')}${triggerHtml}</div>` : '';
       const loadPath = f.path.replace(/'/g, "\\'");
-      return `<div class="avail-item"><div><span class="name">${name}</span><span class="path">${path}</span>${brief}${badgeHtml}</div><button class="btn btn-neutral btn-sm" onclick="loadTrick('${loadPath}')">Load</button></div>`;
+      return `<div class="avail-item"><div><span class="name">${name}</span><span class="path">${path}</span>${brief}${badgeHtml}</div><button class="btn btn-neutral btn-sm" onclick="loadTrick('${loadPath}')" title="Load this trick into the active trickset">Load</button></div>`;
     }).join('');
   } catch(e) { document.getElementById('available-tricks').innerHTML = '<div class="loader">Error loading</div>'; }
 }
@@ -380,7 +380,7 @@ function _sharedPills(loaded, avail, selected, onSwitch, showAdd) {
   el.innerHTML = names.map(n => {
     const cls = 'pill' + (n === selected ? ' active' : '') + (!loadedNames.has(n) ? ' pill-unloaded' : '');
     return `<span class="${cls}" data-name="${escapeHtml(n)}" onclick="${onSwitch}(this.dataset.name)">${escapeHtml(n)}</span>`;
-  }).join('') + (showAdd ? '<span class="pill pill-add" onclick="addTrickset()">+ Add</span>' : '');
+  }).join('') + (showAdd ? '<span class="pill pill-add" onclick="addTrickset()" title="Create a new trickset">+ Add</span>' : '');
 }
 
 async function fetchTricksets() {
@@ -628,7 +628,7 @@ function renderModelEntry(scope, k, m) {
   const keyEsc = escapeHtml(keyDisplay);
   const nameInput = isNamePt ? ' oninput="offPassthrough(this)" onclick="offPassthrough(this)"' : '';
   const keyInput = keyPassthrough ? ' oninput="offPassthrough(this)" onclick="offPassthrough(this)"' : '';
-  return `<div class="model-entry" data-scope="${sc}" data-key="${kk}"><span class="key">${kk}</span><div class="model-fields"><input id="${urlId}" type="text" value="${urlEsc}" onchange="setModelForScope('${sc}','${kk}',this.value,document.getElementById('${nameId}').value,document.getElementById('${keyId}').value)" placeholder="http://..."><div class="model-subrow"><div class="key-wrap"><input id="${nameId}" type="text" value="${modelEsc}" onchange="setModelForScope('${sc}','${kk}',document.getElementById('${urlId}').value,this.value,document.getElementById('${keyId}').value)" placeholder="${namePlaceholder}"${nameInput}><button class="pt-btn${namePtActive}" id="${namePtId}" onclick="togglePassthrough(this)" data-field="name" title="Pass through client model name">pass</button></div><div class="key-wrap"><input id="${keyId}" type="text" value="${keyEsc}" onchange="setModelForScope('${sc}','${kk}',document.getElementById('${urlId}').value,document.getElementById('${nameId}').value,this.value)" placeholder="${keyPlaceholder}"${keyInput}><button class="pt-btn${keyPtActive}" id="${ptId}" onclick="togglePassthrough(this)" data-field="key" title="Pass through client API key">pass</button></div></div></div></div>`;
+  return `<div class="model-entry" data-scope="${sc}" data-key="${kk}"><span class="key">${kk}</span><div class="model-fields"><input id="${urlId}" type="text" value="${urlEsc}" onchange="setModelForScope('${sc}','${kk}',this.value,document.getElementById('${nameId}').value,document.getElementById('${keyId}').value)" placeholder="http://..." title="Upstream API base URL"><div class="model-subrow"><div class="key-wrap"><input id="${nameId}" type="text" value="${modelEsc}" onchange="setModelForScope('${sc}','${kk}',document.getElementById('${urlId}').value,this.value,document.getElementById('${keyId}').value)" placeholder="${namePlaceholder}" title="Model name to send in requests"${nameInput}><button class="pt-btn${namePtActive}" id="${namePtId}" onclick="togglePassthrough(this)" data-field="name" title="Pass through client model name">pass</button></div><div class="key-wrap"><input id="${keyId}" type="text" value="${keyEsc}" onchange="setModelForScope('${sc}','${kk}',document.getElementById('${urlId}').value,document.getElementById('${nameId}').value,this.value)" placeholder="${keyPlaceholder}" title="API key for upstream service"${keyInput}><button class="pt-btn${keyPtActive}" id="${ptId}" onclick="togglePassthrough(this)" data-field="key" title="Pass through client API key">pass</button></div></div></div></div>`;
 }
 
 async function setModelForScope(scope, key, model_url, model_name, api_key) {
