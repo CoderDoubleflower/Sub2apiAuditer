@@ -232,6 +232,9 @@ header .nav a:hover { background: #1a2a4d; }
 .badge-models { background: #2a1a3a; color: #b48aff; }
 .badge-ts { background: #1a2a1a; color: #6bff8a; font-size: 9px; }
 
+.trigger-word { margin-left: auto; font-size: 10px; color: #f5c542; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.trigger-word:hover { color: #ffe066; }
+
 .actions {
   display: flex;
   align-items: center;
