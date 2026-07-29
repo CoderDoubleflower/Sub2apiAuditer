@@ -325,6 +325,8 @@ def create_app(
             else:
                 return JSONResponse({"error": f"Trickset '{name}' not found"}, status_code=404)
         data = await request.json()
+        if not ts.file_path:
+            ts.file_path = str(TRICKSETS_DIR / f"{ts.name}.json")
         if "filters" in data:
             ts.filters = data["filters"]
         if "tricks" in data:
@@ -332,8 +334,7 @@ def create_app(
             has_ids = all(isinstance(e, dict) and e.get("id") for e in raw)
             if has_ids:
                 if ts.merge_tricks(raw):
-                    if ts.file_path:
-                        ts.save()
+                    ts.save()
             else:
                 new_paths: list[str] = []
                 new_enabled: list[bool] = []
@@ -355,8 +356,7 @@ def create_app(
                 ts.trick_ids = new_ids
                 ts.trick_keywords = new_keywords
                 ts.load_tricks()
-                if ts.file_path:
-                    ts.save()
+                ts.save()
         if "parameters" in data:
             ts.parameters = dict(data["parameters"])
         if "models" in data:
@@ -373,8 +373,7 @@ def create_app(
                 old_path.rename(new_path)
                 ts.file_path = str(new_path)
             handler.tricksets[new_name] = handler.tricksets.pop(old_name)
-        if ts.file_path:
-            ts.save()
+        ts.save()
         return JSONResponse({"success": True})
     app.add_route("/api/tricksets/{name}", update_trickset, methods=["PUT"])
 

@@ -100,6 +100,7 @@ class Trickset:
         if not self.file_path:
             raise ValueError(f"Trickset '{self.name}' has no file path")
         data = self.to_file_dict()
+        Path(self.file_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.file_path).write_text(json.dumps(data, indent=2) + "\n")
         logger.info("Saved trickset %s to %s", self.name, self.file_path)
 

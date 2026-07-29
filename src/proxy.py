@@ -347,10 +347,10 @@ class ProxyHandler:
                     while len(ts.trick_enabled) <= i:
                         ts.trick_enabled.append(True)
                     ts.trick_enabled[i] = enabled
-                    try:
-                        ts.save()
-                    except ValueError:
-                        pass
+                    if not ts.file_path:
+                        from pathlib import Path
+                        ts.file_path = str(Path.home() / ".config" / "petsitter" / "tricksets" / f"{ts.name}.json")
+                    ts.save()
                     return True
         return False
 
