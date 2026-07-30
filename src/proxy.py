@@ -2,6 +2,7 @@
 
 import json
 import logging
+from pathlib import Path
 import re
 import time
 from typing import Any
@@ -37,7 +38,7 @@ class ProxyHandler:
         self.api_key = api_key
         self.tricksets = tricksets or {}
         if tricks is not None and not self.tricksets:
-            ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, [])
+            ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, [], file_path=str(Path.home() / ".config" / "petsitter" / "tricksets" / "_default.json"))
             ts.tricks = list(tricks)
             ts.trick_enabled = [True] * len(tricks)
             self.tricksets["_default"] = ts
@@ -255,7 +256,7 @@ class ProxyHandler:
         else:
             ts = self.get_default_trickset()
             if not ts:
-                ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, [])
+                ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, [], file_path=str(Path.home() / ".config" / "petsitter" / "tricksets" / "_default.json"))
                 self.tricksets["_default"] = ts
         trick = ts.add_trick(path)
         try:
@@ -348,7 +349,6 @@ class ProxyHandler:
                         ts.trick_enabled.append(True)
                     ts.trick_enabled[i] = enabled
                     if not ts.file_path:
-                        from pathlib import Path
                         ts.file_path = str(Path.home() / ".config" / "petsitter" / "tricksets" / f"{ts.name}.json")
                     ts.save()
                     return True

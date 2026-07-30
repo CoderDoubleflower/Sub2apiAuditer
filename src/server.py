@@ -155,7 +155,7 @@ def create_app(
             for tp in trick_paths:
                 existing.add_trick(tp)
         else:
-            default_ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, list(trick_paths))
+            default_ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, list(trick_paths), file_path=str(TRICKSETS_DIR / "_default.json"))
             default_ts.load_tricks()
             tricksets["_default"] = default_ts
 
