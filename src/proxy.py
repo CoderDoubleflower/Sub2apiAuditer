@@ -446,26 +446,29 @@ class ProxyHandler:
             logger.info(f"Calling upstream model: {upstream_url}/v1/chat/completions")
             logger.debug(f"Upstream payload: {json.dumps(upstream_payload, indent=2)}")
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{upstream_url}/v1/chat/completions",
-                    json=upstream_payload,
-                    headers=upstream_headers,
-                    timeout=120.0,
-                )
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{upstream_url}/v1/chat/completions",
+                        json=upstream_payload,
+                        headers=upstream_headers,
+                        timeout=120.0,
+                    )
+            except httpx.TransportError as e:
+                raise ValueError(f"Error: {upstream_url} can't be reached: {e}") from e
 
-                logger.info(f"Upstream response status: {response.status_code}")
-                logger.debug(f"Upstream response headers: {dict(response.headers)}")
-                logger.debug(f"Upstream response body: {response.text[:500] if response.text else '(empty)'}")
+            logger.info(f"Upstream response status: {response.status_code}")
+            logger.debug(f"Upstream response headers: {dict(response.headers)}")
+            logger.debug(f"Upstream response body: {response.text[:500] if response.text else '(empty)'}")
 
-                response.raise_for_status()
+            response.raise_for_status()
 
-                if not response.content:
-                    logger.error(f"Empty response from upstream. Status: {response.status_code}")
-                    logger.error(f"Response headers: {dict(response.headers)}")
-                    raise ValueError(f"Upstream returned empty response (status {response.status_code})")
+            if not response.content:
+                logger.error(f"Empty response from upstream. Status: {response.status_code}")
+                logger.error(f"Response headers: {dict(response.headers)}")
+                raise ValueError(f"Upstream returned empty response (status {response.status_code})")
 
-                result = response.json()
+            result = response.json()
 
             logger.debug(f"Upstream response: {json.dumps(result, indent=2)}")
 
@@ -492,14 +495,17 @@ class ProxyHandler:
         upstream_url = default_cfg["url"]
         if not upstream_url:
             raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{upstream_url}/v1/models",
-                headers=self._build_headers(default_cfg),
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            result = response.json()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{upstream_url}/v1/models",
+                    headers=self._build_headers(default_cfg),
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                result = response.json()
+        except httpx.TransportError as e:
+            raise ValueError(f"Error: {upstream_url} can't be reached: {e}") from e
         for name in self.tricksets:
             result.setdefault("data", []).append({
                 "id": f"trickset/{name}",

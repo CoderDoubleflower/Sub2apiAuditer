@@ -4,6 +4,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+
 from src.proxy import ProxyHandler
 from src.trick import Trick
 
@@ -203,6 +205,45 @@ class TestProxyHandler:
         with patch("httpx.AsyncClient", return_value=mock_client):
             result = await handler.models()
             assert "data" in result
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_unreachable_server(self):
+        """Chat completions raises a clear error when upstream can't be reached."""
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test-model",
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("All connection attempts failed"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            payload = {"messages": [{"role": "user", "content": "Hi"}]}
+            with pytest.raises(ValueError) as excinfo:
+                await handler.chat_completions(payload)
+            assert "Error: http://localhost:11434 can't be reached:" in str(excinfo.value)
+            assert "All connection attempts failed" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_models_unreachable_server(self):
+        """Models endpoint raises a clear error when upstream can't be reached."""
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test-model",
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("All connection attempts failed"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(ValueError) as excinfo:
+                await handler.models()
+            assert "Error: http://localhost:11434 can't be reached:" in str(excinfo.value)
+            assert "All connection attempts failed" in str(excinfo.value)
 
 
 class TestKeywordActivation:
