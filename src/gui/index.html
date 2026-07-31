@@ -6,9 +6,10 @@
 <title>PetSitter Dashboard</title>
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<link rel="stylesheet" href="/static/vendor/github-dark.min.css">
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/highlight.min.js"></script>
+<script src="/static/vendor/mermaid.min.js"></script>
 </head>
 <body>
 
@@ -212,6 +213,7 @@ function parseHash() {
 }
 
 let _helpLoaded = false;
+let _mermaidReady = false;
 async function loadHelpContent() {
   if (_helpLoaded) return;
   _helpLoaded = true;
@@ -219,9 +221,40 @@ async function loadHelpContent() {
     const md = await (await fetch('/api/help')).text();
     const html = marked.parse(md, { breaks: true });
     document.getElementById('help-content').innerHTML = html;
-    document.querySelectorAll('#help-content pre code').forEach(block => hljs.highlightElement(block));
+    document.querySelectorAll('#help-content pre code').forEach(block => {
+      if (!block.classList.contains('language-mermaid')) hljs.highlightElement(block);
+    });
+    renderMermaidDiagrams();
   } catch(e) {
     document.getElementById('help-content').innerHTML = '<div class="empty">Failed to load help content.</div>';
+  }
+}
+
+async function renderMermaidDiagrams() {
+  const blocks = document.querySelectorAll('#help-content pre code.language-mermaid');
+  if (!blocks.length) return;
+  if (!_mermaidReady) {
+    try {
+      mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: { darkMode: true } });
+      _mermaidReady = true;
+    } catch(e) {
+      console.error('mermaid init failed:', e);
+      return;
+    }
+  }
+  for (const block of blocks) {
+    try {
+      const id = 'mermaid-' + Math.random().toString(36).slice(2, 9);
+      const { svg } = await mermaid.render(id, block.textContent);
+      const pre = block.closest('pre');
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mermaid-diagram';
+      wrapper.innerHTML = svg;
+      pre.replaceWith(wrapper);
+    } catch(e) {
+      console.error('mermaid render failed:', e);
+      block.closest('pre').classList.add('mermaid-error');
+    }
   }
 }
 

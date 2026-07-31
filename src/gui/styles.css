@@ -798,6 +798,16 @@ header .nav a:hover { background: #1a2a4d; }
 #help-content li { margin: 0.3em 0; }
 #help-content a { color: #8ab4ff; }
 #help-content a:hover { text-decoration: underline; }
+#help-content .mermaid-diagram {
+  margin: 1em 0;
+  padding: 1em;
+  background: #16161f;
+  border: 1px solid #1e2a3a;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+#help-content .mermaid-diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+#help-content pre.mermaid-error { border: 1px solid #5a2b2b; }
 #help-content table {
   border-collapse: collapse;
   margin: 0.8em 0;
