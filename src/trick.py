@@ -5,6 +5,8 @@ from typing import Any
 
 import httpx
 
+from src.observability import get_logger, request_tag
+
 
 _model_url = ""
 _model_name = ""
@@ -144,6 +146,10 @@ def callmodel_sync(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    get_logger().info(
+        "%scallmodel_sync: %s/v1/chat/completions model=%r messages=%d",
+        request_tag(), model_url, model_name or "default", len(messages),
+    )
     with httpx.Client() as client:
         response = client.post(
             f"{model_url}/v1/chat/completions",
@@ -332,6 +338,10 @@ async def callmodel(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    get_logger().info(
+        "%scallmodel: %s/v1/chat/completions model=%r messages=%d",
+        request_tag(), model_url, model_name or "default", len(messages),
+    )
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{model_url}/v1/chat/completions",

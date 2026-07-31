@@ -8,15 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from src.loader import load_trick_from_path
+from src.observability import TRICKSET_LOG_DIR
 from src.trick import Trick
 
 logger = logging.getLogger("petsitter")
 
-SCHEMA = "0.7.0"
+SCHEMA = "0.8.0"
 
 
 def _new_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def _default_logfile(name: str) -> str:
+    return str(TRICKSET_LOG_DIR / f"{name}.log")
 
 
 class Trickset:
@@ -32,6 +37,8 @@ class Trickset:
         trick_enabled: list[bool] | None = None,
         trick_ids: list[str] | None = None,
         trick_keywords: list[str | None] | None = None,
+        logfile: str | None = None,
+        loglevel: str = "INFO",
     ):
         self.name = name
         self.schema = schema
@@ -49,6 +56,8 @@ class Trickset:
         self.parameters: dict[str, Any] = parameters or {}
         self.models: dict[str, str] = models or {}
         self.tricks: list[Trick] = []
+        self.logfile = logfile if logfile else _default_logfile(name)
+        self.loglevel = (loglevel or "INFO").upper()
 
     def _trick_entries(self) -> list[dict]:
         return [
@@ -73,7 +82,31 @@ class Trickset:
         for path in self.trick_paths:
             cls = load_trick_from_path(path)
             self.tricks.append(cls())
-            logger.info("Trickset %s: loaded trick %s", self.name, path)
+            self.get_logger().info("trickset '%s': loaded trick %s", self.name, path)
+
+    def get_logger(self) -> logging.Logger:
+        """Return a Python logger writing this trickset's activity to its logfile.
+
+        The returned logger also propagates to the root ``petsitter`` handlers,
+        so records still reach the dashboard/console. Its own level is
+        ``loglevel``; the file handler is (re)configured to follow the current
+        ``logfile``/``loglevel`` values on each call.
+        """
+        level = getattr(logging, self.loglevel, logging.INFO)
+        log = logging.getLogger(f"petsitter.trickset.{self.name}")
+        log.setLevel(level)
+        logfile = self.logfile or _default_logfile(self.name)
+        handler = next((h for h in log.handlers if isinstance(h, logging.FileHandler)), None)
+        if handler is None or Path(handler.baseFilename).resolve() != Path(logfile).resolve():
+            if handler is not None:
+                log.removeHandler(handler)
+                handler.close()
+            Path(logfile).parent.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(logfile)
+            handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+            log.addHandler(handler)
+        handler.setLevel(level)
+        return log
 
     def to_dict(self) -> dict:
         return {
@@ -84,6 +117,8 @@ class Trickset:
             "file_path": self.file_path,
             "parameters": dict(self.parameters),
             "models": dict(self.models),
+            "logfile": self.logfile,
+            "loglevel": self.loglevel,
         }
 
     def to_file_dict(self) -> dict:
@@ -94,6 +129,8 @@ class Trickset:
             "tricks": self._trick_entries(),
             "parameters": dict(self.parameters),
             "models": dict(self.models),
+            "logfile": self.logfile,
+            "loglevel": self.loglevel,
         }
 
     def save(self) -> None:
@@ -102,7 +139,7 @@ class Trickset:
         data = self.to_file_dict()
         Path(self.file_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.file_path).write_text(json.dumps(data, indent=2) + "\n")
-        logger.info("Saved trickset %s to %s", self.name, self.file_path)
+        self.get_logger().info("trickset '%s': saved to %s", self.name, self.file_path)
 
     @staticmethod
     def load_from_file(path: str) -> "Trickset":
@@ -131,9 +168,11 @@ class Trickset:
                 trick_keywords.append(entry.get("keyword"))
         parameters = data.get("parameters", {})
         models = data.get("models", {})
-        ts = Trickset(name, schema, filters, trick_paths, file_path=str(p), parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords)
+        logfile = data.get("logfile")
+        loglevel = data.get("loglevel", "INFO")
+        ts = Trickset(name, schema, filters, trick_paths, file_path=str(p), parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords, logfile=logfile, loglevel=loglevel)
         ts.load_tricks()
-        logger.info("Loaded trickset: %s (%d tricks)", name, len(ts.tricks))
+        ts.get_logger().info("trickset '%s': loaded %d tricks from %s", name, len(ts.tricks), path)
         return ts
 
     @staticmethod
@@ -188,7 +227,7 @@ class Trickset:
         self.trick_enabled.append(enabled)
         self.trick_ids.append(_new_id())
         self.trick_keywords.append(keyword)
-        logger.info("Trickset %s: added trick %s", self.name, path)
+        self.get_logger().info("trickset '%s': added trick %s", self.name, path)
         return trick
 
     def remove_trick(self, trick_id: str) -> bool:
@@ -201,7 +240,7 @@ class Trickset:
                     del self.trick_enabled[i]
                 if i < len(self.trick_keywords):
                     del self.trick_keywords[i]
-                logger.info("Trickset %s: removed trick %s", self.name, tid)
+                self.get_logger().info("trickset '%s': removed trick %s", self.name, tid)
                 return True
         return False
 

@@ -10,6 +10,15 @@ from typing import Any
 import httpx
 
 from src.context import append_to_system_prompt
+from src.observability import (
+    get_logger,
+    new_request_id,
+    request_tag,
+    reset_current_trickset,
+    reset_request_id,
+    set_current_trickset,
+    set_request_id,
+)
 from src.trick import (
     Trick,
     build_upstream_headers,
@@ -52,21 +61,31 @@ class ProxyHandler:
             result.extend(ts.tricks)
         return result
 
-    def _matching_tricks(self, x_title: str, model: str) -> list[Trick]:
+    def _matching_tricks(self, x_title: str, model: str) -> tuple[list[Trick], Trickset | None]:
         tricks: list[Trick] = []
+        matched: Trickset | None = None
         default_ts = self.tricksets.get("_default")
         for name, ts in self.tricksets.items():
             if name == "_default":
                 continue
             if ts.matches(x_title, model):
-                for i, t in enumerate(ts.tricks):
-                    if i < len(ts.trick_enabled) and ts.trick_enabled[i]:
-                        tricks.append(t)
+                enabled = [t for i, t in enumerate(ts.tricks) if i < len(ts.trick_enabled) and ts.trick_enabled[i]]
+                ts.get_logger().info(
+                    "%strickset '%s' matched (X-Title=%r, Model=%r) -> %d enabled tricks",
+                    request_tag(), ts.name, x_title, model, len(enabled),
+                )
+                if matched is None:
+                    matched = ts
+                tricks.extend(enabled)
         if not tricks and default_ts:
-            for i, t in enumerate(default_ts.tricks):
-                if i < len(default_ts.trick_enabled) and default_ts.trick_enabled[i]:
-                    tricks.append(t)
-        return tricks
+            enabled = [t for i, t in enumerate(default_ts.tricks) if i < len(default_ts.trick_enabled) and default_ts.trick_enabled[i]]
+            default_ts.get_logger().info(
+                "%strickset '_default' used as fallback (X-Title=%r, Model=%r) -> %d enabled tricks",
+                request_tag(), x_title, model, len(enabled),
+            )
+            tricks.extend(enabled)
+            matched = default_ts
+        return tricks, matched
 
     def _build_headers(self, model_cfg: dict | None = None) -> dict[str, str]:
         if model_cfg is not None:
@@ -81,9 +100,14 @@ class ProxyHandler:
             tricks = self.tricks
         result = system_prompt
         for trick in tricks:
+            before = len(result)
             addition = trick.system_prompt(result)
             if addition:
                 result = result + "\n" + addition if result else addition
+            get_logger().debug(
+                "%ssystem_prompt hook: %s (%d -> %d chars)",
+                request_tag(), type(trick).__name__, before, len(result),
+            )
         return result
 
     def _apply_pre_hooks(self, context: list, params: dict, tricks: list[Trick] | None = None) -> list:
@@ -91,7 +115,12 @@ class ProxyHandler:
             tricks = self.tricks
         result = context
         for trick in tricks:
+            before = len(result)
             result = trick.pre_hook(result, params)
+            get_logger().debug(
+                "%spre_hook: %s (messages %d -> %d)",
+                request_tag(), type(trick).__name__, before, len(result),
+            )
         return result
 
     def _apply_post_hooks(self, context: list, tricks: list[Trick] | None = None) -> list:
@@ -99,7 +128,12 @@ class ProxyHandler:
             tricks = self.tricks
         result = context
         for trick in tricks:
+            before = len(result)
             result = trick.post_hook(result)
+            get_logger().debug(
+                "%spost_hook: %s (messages %d -> %d)",
+                request_tag(), type(trick).__name__, before, len(result),
+            )
         return result
 
     def _merge_capabilities(self, tricks: list[Trick] | None = None) -> dict:
@@ -108,6 +142,10 @@ class ProxyHandler:
         capabilities = {}
         for trick in tricks:
             capabilities = trick.info(capabilities)
+            get_logger().debug(
+                "%sinfo: %s -> capabilities %s",
+                request_tag(), type(trick).__name__, {k: type(v).__name__ for k, v in capabilities.items()},
+            )
         return capabilities
 
     def _find_prompt_keyword_patterns(self, text: str) -> list[dict]:
@@ -156,12 +194,12 @@ class ProxyHandler:
         return results
 
     def _filter_prompt_keywords(self, messages: list, payload: dict | None = None) -> tuple[list, dict | None]:
-        registry: dict[str, Trick] = {}
+        registry: dict[str, tuple[Trick, Trickset]] = {}
         for ts_name, ts in self.tricksets.items():
             for i, t in enumerate(ts.tricks):
                 kw = (ts.trick_keywords[i] if i < len(ts.trick_keywords) and ts.trick_keywords[i] else None) or t.prompt_keyword
                 if kw:
-                    registry[kw.lower()] = t
+                    registry[kw.lower()] = (t, ts)
 
         modified = list(messages)
         for msg in reversed(modified):
@@ -177,11 +215,16 @@ class ProxyHandler:
             unrecognized: list[str] = []
             for p in patterns:
                 keyword = p["keyword"].lower()
-                trick = registry.get(keyword)
-                if trick:
-                    recognized.append(p | {"trick": trick})
+                entry = registry.get(keyword)
+                if entry:
+                    recognized.append(p | {"trick": entry[0], "trickset": entry[1]})
+                    entry[1].get_logger().info(
+                        "%sprompt keyword %r recognized -> %s",
+                        request_tag(), keyword, type(entry[0]).__name__,
+                    )
                 else:
                     unrecognized.append(keyword)
+                    get_logger().info("%sprompt keyword %r unrecognized; ignored", request_tag(), keyword)
 
             # Strip all keyword patterns from content
             for p in reversed(patterns):
@@ -206,15 +249,20 @@ class ProxyHandler:
                 request_text = p["request"]
                 keyword = p["keyword"].lower()
                 trick = p["trick"]
+                log = p["trickset"].get_logger()
                 try:
                     response = trick.handle_prompt_keyword(request_text, modified, payload)
                 except Exception as e:
-                    logger.exception(f"prompt_keyword handler for {keyword!r} failed: {e}")
+                    log.exception("%sprompt_keyword handler for %r failed: %s", request_tag(), keyword, e)
                     response = {
                         "role": "assistant",
                         "content": f"Error handling prompt keyword '{keyword}': {e}",
                     }
                 if isinstance(response, dict):
+                    log.info(
+                        "%sprompt keyword %r handled by %s -> response injected",
+                        request_tag(), keyword, type(trick).__name__,
+                    )
                     return modified, response
 
             break
@@ -237,11 +285,20 @@ class ProxyHandler:
                             content = pattern.sub("", content)
                             if trick not in active:
                                 active.append(trick)
+                                get_logger().info(
+                                    "%skeyword %r activated %s",
+                                    request_tag(), kw, type(trick).__name__,
+                                )
                 content = re.sub(r' +', ' ', content).strip()
                 msg["content"] = content
                 break
 
-        return non_kw_tricks + active, modified
+        result = non_kw_tricks + active
+        get_logger().info(
+            "%sactive tricks (%d): %s",
+            request_tag(), len(result), ", ".join(type(t).__name__ for t in result) or "(none)",
+        )
+        return result, modified
 
     def get_default_trickset(self) -> Trickset | None:
         for ts in self.tricksets.values():
@@ -262,7 +319,11 @@ class ProxyHandler:
         try:
             trick.install()
         except Exception:
-            logger.exception("Trick %s install failed", type(trick).__name__)
+            ts.get_logger().exception("trick %s install failed", type(trick).__name__)
+        else:
+            ts.get_logger().info(
+                "trickset '%s': installed %s (%s)", ts.name, type(trick).__name__, path,
+            )
         return trick
 
     def remove_trick(self, class_name: str, ts_name: str | None = None) -> bool:
@@ -293,11 +354,15 @@ class ProxyHandler:
                 return False
             tid = ts.find_trick_id_by_class(class_name)
             if tid:
-                return ts.remove_trick(tid)
+                removed = ts.remove_trick(tid)
+                if removed:
+                    ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
+                return removed
             return False
         for ts in self.tricksets.values():
             tid = ts.find_trick_id_by_class(class_name)
             if tid and ts.remove_trick(tid):
+                ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
                 return True
         return False
 
@@ -364,7 +429,8 @@ class ProxyHandler:
                 try:
                     t.startup()
                 except Exception:
-                    logger.exception("Trick %s startup failed", name)
+                    get_logger().exception("%strick %s startup failed", request_tag(), name)
+                get_logger().info("%sstarted %s (run 0 -> 1)", request_tag(), name)
             self._run_counts[name] = cnt + 1
 
     def _stop_tricks(self, tricks: list[Trick]) -> None:
@@ -377,7 +443,8 @@ class ProxyHandler:
                 try:
                     t.shutdown()
                 except Exception:
-                    logger.exception("Trick %s shutdown failed", name)
+                    get_logger().exception("%strick %s shutdown failed", request_tag(), name)
+                get_logger().info("%sstopped %s (run 1 -> 0)", request_tag(), name)
             self._run_counts[name] = cnt - 1
 
     def shutdown_all(self) -> None:
@@ -393,42 +460,63 @@ class ProxyHandler:
                 self._run_counts[name] = 0
 
     async def chat_completions(self, payload: dict, x_title: str = "") -> dict:
-        default_cfg = get_model_config("default")
-        upstream_url = default_cfg["url"]
-        if not upstream_url:
-            raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
-        messages = payload.get("messages", [])
-
-        messages, pk_response = self._filter_prompt_keywords(messages, payload)
-        if pk_response:
-            return {
-                "id": "chatcmpl-pk-" + str(int(time.time())),
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": "petsitter",
-                "choices": [{
-                    "index": 0,
-                    "message": pk_response,
-                    "finish_reason": "stop",
-                }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            }
-
-        model = payload.get("model", "")
-        if model.startswith("trickset/"):
-            ts_name = model.split("/", 1)[1]
-            ts = self.tricksets.get(ts_name)
-            if ts:
-                tricks = list(ts.tricks)
-            else:
-                tricks = []
-        else:
-            tricks = self._matching_tricks(x_title, model)
-
-        tricks, messages = self._filter_tricks_by_keywords(tricks, messages)
-        self._start_tricks(tricks)
-
+        rid = new_request_id()
+        rid_token = set_request_id(rid)
+        ts_token = None
+        tricks: list[Trick] = []
+        log = get_logger()
         try:
+            default_cfg = get_model_config("default")
+            upstream_url = default_cfg["url"]
+            if not upstream_url:
+                raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
+            messages = payload.get("messages", [])
+
+            log.info("%srequest: model=%r x_title=%r", request_tag(), payload.get("model", ""), x_title)
+
+            messages, pk_response = self._filter_prompt_keywords(messages, payload)
+            if pk_response:
+                return {
+                    "id": "chatcmpl-pk-" + str(int(time.time())),
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": "petsitter",
+                    "choices": [{
+                        "index": 0,
+                        "message": pk_response,
+                        "finish_reason": "stop",
+                    }],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                }
+
+            model = payload.get("model", "")
+            if model.startswith("trickset/"):
+                ts_name = model.split("/", 1)[1]
+                ts = self.tricksets.get(ts_name)
+                if ts:
+                    tricks = list(ts.tricks)
+                    ts_token = set_current_trickset(ts)
+                    log = get_logger()
+                    log.info(
+                        "%strickset '%s' selected via model %r -> %d tricks",
+                        request_tag(), ts.name, model, len(tricks),
+                    )
+                else:
+                    log.warning(
+                        "%smodel %r requested but trickset '%s' not loaded",
+                        request_tag(), model, ts_name,
+                    )
+            else:
+                tricks, matched_ts = self._matching_tricks(x_title, model)
+                if matched_ts is not None:
+                    ts_token = set_current_trickset(matched_ts)
+                    log = get_logger()
+                elif not tricks:
+                    log.info("%sno trickset matched; no tricks active", request_tag())
+
+            tricks, messages = self._filter_tricks_by_keywords(tricks, messages)
+            self._start_tricks(tricks)
+
             system_prompt = ""
             if messages and messages[0].get("role") == "system":
                 system_prompt = messages[0].get("content", "")
@@ -443,8 +531,8 @@ class ProxyHandler:
             upstream_payload = build_upstream_payload(default_cfg, messages, payload)
             upstream_headers = self._build_headers(default_cfg)
 
-            logger.info(f"Calling upstream model: {upstream_url}/v1/chat/completions")
-            logger.debug(f"Upstream payload: {json.dumps(upstream_payload, indent=2)}")
+            log.info("%scalling upstream model: %s/v1/chat/completions", request_tag(), upstream_url)
+            log.debug("%supstream payload: %s", request_tag(), json.dumps(upstream_payload, indent=2))
 
             try:
                 async with httpx.AsyncClient() as client:
@@ -457,28 +545,28 @@ class ProxyHandler:
             except httpx.TransportError as e:
                 raise ValueError(f"Error: {upstream_url} can't be reached: {e}") from e
 
-            logger.info(f"Upstream response status: {response.status_code}")
-            logger.debug(f"Upstream response headers: {dict(response.headers)}")
-            logger.debug(f"Upstream response body: {response.text[:500] if response.text else '(empty)'}")
+            log.info("%supstream response status: %s", request_tag(), response.status_code)
+            log.debug("%supstream response headers: %s", request_tag(), dict(response.headers))
+            log.debug("%supstream response body: %s", request_tag(), response.text[:500] if response.text else "(empty)")
 
             response.raise_for_status()
 
             if not response.content:
-                logger.error(f"Empty response from upstream. Status: {response.status_code}")
-                logger.error(f"Response headers: {dict(response.headers)}")
+                log.error("%supstream returned empty response (status %s)", request_tag(), response.status_code)
+                log.error("%supstream response headers: %s", request_tag(), dict(response.headers))
                 raise ValueError(f"Upstream returned empty response (status {response.status_code})")
 
             result = response.json()
 
-            logger.debug(f"Upstream response: {json.dumps(result, indent=2)}")
+            log.debug("%supstream response: %s", request_tag(), json.dumps(result, indent=2))
 
             assistant_message = result["choices"][0]["message"]
             context = messages + [assistant_message]
 
-            logger.debug(f"Context before post-hooks: {json.dumps(context, indent=2)}")
+            log.debug("%scontext before post-hooks: %s", request_tag(), json.dumps(context, indent=2))
 
             context = self._apply_post_hooks(context, tricks)
-            logger.debug(f"Context after post-hooks: {json.dumps(context, indent=2)}")
+            log.debug("%scontext after post-hooks: %s", request_tag(), json.dumps(context, indent=2))
 
             result["choices"][0]["message"] = context[-1]
 
@@ -489,6 +577,9 @@ class ProxyHandler:
             return result
         finally:
             self._stop_tricks(tricks)
+            if ts_token is not None:
+                reset_current_trickset(ts_token)
+            reset_request_id(rid_token)
 
     async def models(self) -> dict:
         default_cfg = get_model_config("default")

@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.staticfiles import StaticFiles
 
 from src.trick import Trick, get_model_config, remove_model_config, update_model_config
-from src.trickset import Trickset
+from src.trickset import Trickset, SCHEMA
 
 _log_capture = None
 _config_path: str | None = None
@@ -243,7 +243,7 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
             return JSONResponse({"success": False, "error": "name required"}, status_code=400)
         parameters = data.get("parameters", {})
         models = data.get("models", {})
-        ts = Trickset(name, "0.7.0", filters, [], parameters=parameters, models=models)
+        ts = Trickset(name, SCHEMA, filters, [], parameters=parameters, models=models)
         ts.file_path = str(Path.home() / ".config" / "petsitter" / "tricksets" / f"{name}.json")
         ts.save()
         handler.tricksets[name] = ts

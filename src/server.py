@@ -26,7 +26,7 @@ from src.proxy import ProxyHandler
 from src.trick import (
     configure_modelset,
 )
-from src.trickset import Trickset, _new_id
+from src.trickset import Trickset, _default_logfile, _new_id
 
 
 class LogCaptureHandler(logging.Handler):
@@ -361,6 +361,10 @@ def create_app(
             ts.parameters = dict(data["parameters"])
         if "models" in data:
             ts.models = dict(data["models"])
+        if "logfile" in data:
+            ts.logfile = data["logfile"] or _default_logfile(ts.name)
+        if "loglevel" in data:
+            ts.loglevel = str(data["loglevel"]).upper()
         if "name" in data and data["name"] != ts.name:
             new_name = data["name"]
             if new_name in handler.tricksets:

@@ -43,6 +43,10 @@
 <span onclick="editFilter(this,'X-Title')" title="Filter by X-Title header value">X-Title: <span class="val" id="ts-fx">*</span></span>
 <span onclick="editFilter(this,'Model')" title="Filter by Model header value">Model: <span class="val" id="ts-fm">*</span></span>
 <span onclick="editName()" title="Rename this trickset">Name: <span class="val" id="ts-name"></span></span>
+<span onclick="editLogfile()" title="Edit this trickset's log file path">Log: <span class="val" id="ts-logfile"></span></span>
+<span title="Log level for this trickset's log file">Level: <select id="ts-loglevel" onchange="saveLoglevel(this.value)">
+<option value="DEBUG">DEBUG</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option>
+</select></span>
 <span class="ts-delete" onclick="if (confirm('Delete trickset \"' + selectedTrickset + '\"? This cannot be undone.')) deleteTrickset()" title="Delete this trickset">delete</span>
 </div>
 </div>
@@ -425,6 +429,8 @@ async function switchTrickset(name) {
     document.getElementById('ts-fx').textContent = ts.filters['X-Title'] || '*';
     document.getElementById('ts-fm').textContent = ts.filters['Model'] || '*';
     document.getElementById('ts-name').textContent = ts.name;
+    document.getElementById('ts-logfile').textContent = ts.logfile || '';
+    document.getElementById('ts-loglevel').value = ts.loglevel || 'INFO';
     if (document.querySelector('.tab.active')?.dataset.tab === 'models') {
       renderModels(selectedTrickset, _cachedConfiguredModels);
     } else {
@@ -475,6 +481,45 @@ function editName() {
   valSpan.appendChild(inp);
   inp.focus();
   inp.select();
+}
+
+function editLogfile() {
+  const valSpan = document.getElementById('ts-logfile');
+  const orig = valSpan.textContent;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.size = 45;
+  inp.value = orig;
+  inp.onblur = function() { saveLogfile(valSpan, inp.value, orig); };
+  inp.onkeydown = function(e) { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { valSpan.textContent = orig; } };
+  valSpan.textContent = '';
+  valSpan.appendChild(inp);
+  inp.focus();
+  inp.select();
+}
+
+async function saveLogfile(valSpan, val, orig) {
+  valSpan.textContent = val || orig;
+  if (val === orig) return;
+  try {
+    await fetchJSON('/api/tricksets/' + encodeURIComponent(selectedTrickset), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({logfile: val}),
+    });
+    showToast('Log file updated');
+  } catch(e) { showToast(e.message, true); valSpan.textContent = orig; }
+}
+
+async function saveLoglevel(val) {
+  try {
+    await fetchJSON('/api/tricksets/' + encodeURIComponent(selectedTrickset), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({loglevel: val}),
+    });
+    showToast('Log level set to ' + val);
+  } catch(e) { showToast(e.message, true); }
 }
 
 async function saveName(valSpan, val, orig) {
