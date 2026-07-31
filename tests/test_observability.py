@@ -156,7 +156,7 @@ class TestProxyLogRouting:
         assert re.search(r"\[[0-9a-f]{8}\]", content)
         assert "trickset 'log_ts' matched" in content
         assert "started LoggingTrick (run 0 -> 1)" in content
-        assert "calling upstream model" in content
+        assert "calling upstream:" in content
 
     def test_prompt_keyword_logs_to_owning_trickset(self, tmp_path):
         ts = Trickset(

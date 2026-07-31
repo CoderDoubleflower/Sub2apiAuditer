@@ -59,6 +59,31 @@ petsitter -u http://localhost:11434 \
 
 Either way, now you can point your AI applications to `http://localhost:8080/v1` and you're going through the petsitter middleware.
 
+## Zero-Config Host Override (`/p/`)
+
+The `/p/` route is the easy way to proxy an existing endpoint: prefix whatever host you already use with `http://localhost:8080/p/` and petsitter handles the rest. No trickset to create, no model config to swap.
+
+```
+# Instead of https://build.nvidia.com/...
+http://localhost:8080/p/build.nvidia.com/...
+```
+
+Point your client's `base_url` at `http://localhost:8080/p/<host>` and petsitter forwards everything after the host to `https://<host>/<rest>` - whatever path the client appends. It's a dumb-client-friendly trick: the client just appends `/chat/completions`, `/v1/models`, or anything else to the base you give it, and petsitter proxies it through the normal trick pipeline.
+
+Key behaviors:
+
+- **HTTPS only** - the upstream host is always assumed `https://`. This is a convenience feature for public endpoints.
+- **Auth passthrough** - your client's `Authorization` header is forwarded to the upstream, so each host's own API key works.
+- **Model passthrough** - the request's `model` field goes upstream as-is.
+- **Trickset selection** relies on the existing `X-Title`/`Model` filters - no special handling, the `/p/` path only overrides the upstream host.
+- Chat completions (streaming included), model listings, and any other path under `/p/` are proxied.
+
+```bash
+curl http://localhost:8080/p/build.nvidia.com/v1/chat/completions \
+  -H "Authorization: Bearer <your-nvidia-key>" \
+  -d '{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"hi"}]}'
+```
+
 ## CLI Options
 
 | Option | Short | Description |
@@ -819,6 +844,7 @@ Petsitter exposes OpenAI-compatible endpoints plus management endpoints:
 - `POST /v1/chat/completions` - Chat completions (proxied + transformed)
 - `GET /v1/models` - List available models (proxied)
 - `GET /health` - Health check
+- `* /p/{host}/{path}` - Zero-config transparent proxy to `https://{host}/{path}` (any method)
 
 **Management:**
 - `GET /api/info` - Server information

@@ -223,7 +223,7 @@ class TestProxyHandler:
             payload = {"messages": [{"role": "user", "content": "Hi"}]}
             with pytest.raises(ValueError) as excinfo:
                 await handler.chat_completions(payload)
-            assert "Error: http://localhost:11434 can't be reached:" in str(excinfo.value)
+            assert "Error: http://localhost:11434/v1/chat/completions can't be reached:" in str(excinfo.value)
             assert "All connection attempts failed" in str(excinfo.value)
 
     @pytest.mark.asyncio
@@ -242,7 +242,7 @@ class TestProxyHandler:
         with patch("httpx.AsyncClient", return_value=mock_client):
             with pytest.raises(ValueError) as excinfo:
                 await handler.models()
-            assert "Error: http://localhost:11434 can't be reached:" in str(excinfo.value)
+            assert "Error: http://localhost:11434/v1/models can't be reached:" in str(excinfo.value)
             assert "All connection attempts failed" in str(excinfo.value)
 
 

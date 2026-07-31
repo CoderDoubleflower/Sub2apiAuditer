@@ -5,6 +5,7 @@ import atexit
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 from collections import deque
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import httpx
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -70,6 +72,53 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 TRICKSETS_DIR = CONFIG_DIR / "tricksets"
 BACKUPS_DIR = CONFIG_DIR / "backups"
 _SOURCE_TRICKSETS = Path(__file__).resolve().parent.parent / "tricksets"
+
+_PROXY_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?::\d+)?$")
+
+
+def _parse_p_path(path: str) -> tuple[str, str] | None:
+    """Parse a ``/p/`` proxy path into ``(host, subpath)``.
+
+    ``/p/build.nvidia.com/v1/chat/completions`` -> ``("build.nvidia.com", "/v1/chat/completions")``.
+    Returns ``None`` if the path isn't a ``/p/`` route or the host is invalid.
+    """
+    if not path.startswith("/p/"):
+        return None
+    rest = path[len("/p/"):]
+    host, sep, sub = rest.partition("/")
+    if not host or not _PROXY_HOST_RE.match(host):
+        return None
+    return host, ("/" + sub.lstrip("/") if sep else "")
+
+
+async def _generic_proxy(target: str, request: Request) -> Response:
+    """Transparently forward a request to *target* and stream back the response."""
+    body = await request.body()
+    headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length", "connection", "transfer-encoding")
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream_resp = await client.request(
+                request.method, target,
+                content=body or None,
+                headers=headers,
+                timeout=120.0,
+            )
+    except httpx.TransportError as e:
+        return JSONResponse({"error": str(e), "type": "proxy_error"}, status_code=502)
+    if upstream_resp.headers.get("content-type", "").startswith("text/event-stream"):
+        return StreamingResponse(
+            upstream_resp.aiter_bytes(),
+            media_type="text/event-stream",
+            status_code=upstream_resp.status_code,
+        )
+    return Response(
+        content=upstream_resp.content,
+        status_code=upstream_resp.status_code,
+        headers={"content-type": upstream_resp.headers.get("content-type", "application/json")},
+    )
 
 
 def _resolve_trick_path(name: str) -> str:
@@ -193,9 +242,9 @@ def create_app(
 
     app = Starlette(lifespan=lifespan)
 
-    async def stream_chat_completions(handler: ProxyHandler, payload: dict, x_title: str):
+    async def stream_chat_completions(handler: ProxyHandler, payload: dict, x_title: str, upstream_request_url: str = "", forward_headers: dict | None = None):
         try:
-            result = await handler.chat_completions(payload, x_title=x_title)
+            result = await handler.chat_completions(payload, x_title=x_title, upstream_request_url=upstream_request_url, forward_headers=forward_headers)
             message = result["choices"][0]["message"]
             stream_result = {
                 "id": result.get("id", "chatcmpl-petsitter"),
@@ -261,6 +310,58 @@ def create_app(
     async def health(request: Request) -> Response:
         return JSONResponse({"status": "ok"})
     app.add_route("/health", health, methods=["GET"])
+
+    # ----- /p/ path-prefix transparent proxy -----
+    # http://localhost:8080/p/<host>/<rest> proxies to https://<host>/<rest>
+    # through the normal trick pipeline. Trickset selection relies on the
+    # existing X-Title/Model filters; the client's Authorization header and
+    # model field pass through to the upstream.
+
+    async def proxy_p(request: Request) -> Response:
+        parsed = _parse_p_path(request.url.path)
+        if parsed is None:
+            return JSONResponse({"error": "Invalid /p/ proxy target", "type": "invalid_request"}, status_code=400)
+        host, rest = parsed
+        upstream = f"https://{host}{rest}"
+        forward_headers = {}
+        if request.headers.get("authorization"):
+            forward_headers["Authorization"] = request.headers["authorization"]
+        x_title = request.headers.get("X-Title", "")
+        logging.getLogger("petsitter").info("/p/ proxy -> %s (x_title=%r)", upstream, x_title)
+
+        if request.method == "POST" and rest.endswith("/chat/completions"):
+            try:
+                payload = await request.json()
+            except json.JSONDecodeError:
+                return JSONResponse({"error": "Invalid JSON", "type": "invalid_request"}, status_code=400)
+            if payload.get("stream", False):
+                return StreamingResponse(
+                    stream_chat_completions(handler, payload, x_title, upstream_request_url=upstream, forward_headers=forward_headers),
+                    media_type="text/event-stream",
+                )
+            try:
+                result = await handler.chat_completions(payload, x_title=x_title, upstream_request_url=upstream, forward_headers=forward_headers)
+                return JSONResponse(result)
+            except ValueError as e:
+                return JSONResponse({"error": str(e), "type": "setup_required"}, status_code=503)
+            except Exception as e:
+                import traceback
+                logging.getLogger("petsitter").error(f"Error in /p/ chat_completions: {e}\n{traceback.format_exc()}")
+                return JSONResponse({"error": str(e), "type": "proxy_error"}, status_code=500)
+
+        if request.method == "GET" and rest.endswith("/models"):
+            try:
+                result = await handler.models(upstream_url=upstream, forward_headers=forward_headers)
+                return JSONResponse(result)
+            except ValueError as e:
+                return JSONResponse({"error": str(e), "type": "setup_required"}, status_code=503)
+            except Exception as e:
+                import traceback
+                logging.getLogger("petsitter").error(f"Error in /p/ models: {e}\n{traceback.format_exc()}")
+                return JSONResponse({"error": str(e), "type": "proxy_error"}, status_code=500)
+
+        return await _generic_proxy(upstream, request)
+    app.add_route("/p/{path:path}", proxy_p, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
 
     register_gui_routes(app, handler, api_key, config_path=config_path)
 

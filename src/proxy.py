@@ -459,7 +459,7 @@ class ProxyHandler:
                         break
                 self._run_counts[name] = 0
 
-    async def chat_completions(self, payload: dict, x_title: str = "") -> dict:
+    async def chat_completions(self, payload: dict, x_title: str = "", upstream_request_url: str = "", forward_headers: dict | None = None) -> dict:
         rid = new_request_id()
         rid_token = set_request_id(rid)
         ts_token = None
@@ -468,7 +468,7 @@ class ProxyHandler:
         try:
             default_cfg = get_model_config("default")
             upstream_url = default_cfg["url"]
-            if not upstream_url:
+            if not upstream_request_url and not upstream_url:
                 raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
             messages = payload.get("messages", [])
 
@@ -528,22 +528,31 @@ class ProxyHandler:
 
             messages = self._apply_pre_hooks(messages, payload, tricks)
 
-            upstream_payload = build_upstream_payload(default_cfg, messages, payload)
-            upstream_headers = self._build_headers(default_cfg)
+            if upstream_request_url:
+                upstream_payload = build_upstream_payload(
+                    {"url": upstream_request_url, "model": payload.get("model", "default"), "key": False},
+                    messages, payload,
+                )
+                upstream_headers = build_upstream_headers({"key": False}, extra_headers=forward_headers or {})
+                target = upstream_request_url
+            else:
+                upstream_payload = build_upstream_payload(default_cfg, messages, payload)
+                upstream_headers = self._build_headers(default_cfg)
+                target = f"{upstream_url}/v1/chat/completions"
 
-            log.info("%scalling upstream model: %s/v1/chat/completions", request_tag(), upstream_url)
+            log.info("%scalling upstream: %s", request_tag(), target)
             log.debug("%supstream payload: %s", request_tag(), json.dumps(upstream_payload, indent=2))
 
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
-                        f"{upstream_url}/v1/chat/completions",
+                        target,
                         json=upstream_payload,
                         headers=upstream_headers,
                         timeout=120.0,
                     )
             except httpx.TransportError as e:
-                raise ValueError(f"Error: {upstream_url} can't be reached: {e}") from e
+                raise ValueError(f"Error: {target} can't be reached: {e}") from e
 
             log.info("%supstream response status: %s", request_tag(), response.status_code)
             log.debug("%supstream response headers: %s", request_tag(), dict(response.headers))
@@ -581,22 +590,24 @@ class ProxyHandler:
                 reset_current_trickset(ts_token)
             reset_request_id(rid_token)
 
-    async def models(self) -> dict:
-        default_cfg = get_model_config("default")
-        upstream_url = default_cfg["url"]
-        if not upstream_url:
-            raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
+    async def models(self, upstream_url: str = "", forward_headers: dict | None = None) -> dict:
+        if upstream_url:
+            target = upstream_url
+            headers = build_upstream_headers({"key": False}, extra_headers=forward_headers or {})
+        else:
+            default_cfg = get_model_config("default")
+            base = default_cfg["url"]
+            if not base:
+                raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
+            target = f"{base}/v1/models"
+            headers = self._build_headers(default_cfg)
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{upstream_url}/v1/models",
-                    headers=self._build_headers(default_cfg),
-                    timeout=30.0,
-                )
+                response = await client.get(target, headers=headers, timeout=30.0)
                 response.raise_for_status()
                 result = response.json()
         except httpx.TransportError as e:
-            raise ValueError(f"Error: {upstream_url} can't be reached: {e}") from e
+            raise ValueError(f"Error: {target} can't be reached: {e}") from e
         for name in self.tricksets:
             result.setdefault("data", []).append({
                 "id": f"trickset/{name}",
