@@ -23,7 +23,7 @@ Petsitter intercepts every request/response pair and runs it through a pipeline 
 
 Tricks also have lifecycle hooks (`install`, `startup`, `shutdown`, `uninstall`) for managing resources across their lifetime.
 
-A trick can be as simple as appending a sentence to the system prompt, or as involved as routing subtasks to three different models in parallel. There's a GUI at `/` for loading/unloading tricks, editing trickset filters, browsing logs, and pointing at different models at runtime.
+A trick can be as simple as appending a sentence to the system prompt, or as involved as routing subtasks to three different models in parallel. There's a GUI at `/` with tabs for managing tricksets and their tricks (Tricks / Models / Agents), a live activity log (Logs), and per-trickset logging configuration (Settings).
 
 You can also edit tricks, reorder them, disable, add new ones, and filter them:
 <img alt="2026-07-04_15-13" src="https://github.com/user-attachments/assets/c623f29a-8724-4fdb-bc6d-a76c3022183a" />
@@ -610,7 +610,7 @@ Tricksets live as JSON files in the `tricksets/` directory:
 
 ```json
 {
-  "schema": "0.7.0",
+  "schema": "0.8.0",
   "name": "my-trickset",
   "filters": {
     "X-Title": "opencode*",
@@ -621,7 +621,9 @@ Tricksets live as JSON files in the `tricksets/` directory:
     "tricks/tool_call.py"
   ],
   "parameters": {},
-  "models": {}
+  "models": {},
+  "logfile": "~/.cache/petsitter/tricksets/my-trickset.log",
+  "loglevel": "INFO"
 }
 ```
 
@@ -678,6 +680,25 @@ curl -X POST http://localhost:8080/api/tricksets/unload \
 The default catch-all trickset matches `{"X-Title": "*", "Model": "*"}` so `--trick` trick works the same as before.
 
 The `schema` field in a trickset JSON file records the petsitter version that wrote it. This tells tools how to interpret the file without needing an external lookup table.
+
+### Logging
+
+Each trickset has its own log file so you can inspect what a specific set of tricks did. The `logfile` field sets the path (default `~/.cache/petsitter/tricksets/<name>.log`) and `loglevel` sets the verbosity - `DEBUG`, `INFO`, `WARNING`, or `ERROR` (default `INFO`). Both are optional; if omitted, the defaults apply. Configure them from the Settings tab in the dashboard or via the API:
+
+```bash
+curl -X PUT http://localhost:8080/api/tricksets/my-trickset \
+  -d '{"logfile": "~/.cache/petsitter/my-trickset.log", "loglevel": "DEBUG"}'
+```
+
+Every request through the pipeline is tagged with a short correlation id so you can follow it end-to-end. The tag appears in the matched trickset's log file and in the global activity log (Logs tab / `GET /api/logs`):
+
+```
+[ab12cd34] trickset 'gemma4' matched (X-Title='*' Model='gemma4*')
+[ab12cd34] started multiround.py (run 0 -> 1)
+[ab12cd34] calling upstream http://localhost:11434/v1/chat/completions model='gemma4'
+```
+
+Lifecycle events (install / uninstall / startup / shutdown) are written to the owning trickset's log file even when no request is running.
 
 ## Agents
 
@@ -812,7 +833,7 @@ Petsitter exposes OpenAI-compatible endpoints plus management endpoints:
 - `POST /api/tricksets/load` - Load a trickset
 - `POST /api/tricksets/unload` - Unload a trickset
 - `GET /api/tricksets/{name}` - Get trickset details
-- `PUT /api/tricksets/{name}` - Update trickset filters, tricks, parameters, or models
+- `PUT /api/tricksets/{name}` - Update trickset filters, tricks, parameters, models, or logging config (`logfile` / `loglevel`)
 
 A Swagger UI is available at `/docs` and the OpenAPI spec at `/static/openapi.json`.
 

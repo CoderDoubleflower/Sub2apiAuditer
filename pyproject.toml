@@ -24,6 +24,15 @@ test = [
 packages = ["src", "tricks"]
 include = ["tricksets/*.json", "src/gui/*"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tricks",
+  "/tricksets",
+  "/README.md",
+  "/LICENSE.MIT",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
