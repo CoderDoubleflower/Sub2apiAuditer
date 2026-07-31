@@ -1,5 +1,7 @@
 """Tests for petsitter server and CLI."""
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,6 +39,88 @@ class TestCreateApp:
             trick_paths=["tricks/json_mode.py"],
         )
         assert app is not None
+
+
+class TestCreateAppDefaults:
+    """Tests for _default trickset seeding and persistence."""
+
+    @staticmethod
+    def _write_saved_default(tmp_path, tricks, logfile="~/.cache/petsitter/tricksets/_default.log"):
+        (tmp_path / "_default.json").write_text(json.dumps({
+            "schema": "0.8.0",
+            "name": "_default",
+            "filters": {"X-Title": "*", "Model": "*"},
+            "tricks": tricks,
+            "parameters": {},
+            "models": {},
+            "logfile": logfile,
+            "loglevel": "INFO",
+        }) + "\n")
+
+    @staticmethod
+    async def _trick_files(app, name="_default"):
+        from httpx import ASGITransport, AsyncClient
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            return (await ac.get(f"/api/tricksets/{name}")).json()["tricks"]
+
+    @pytest.mark.asyncio
+    async def test_fresh_default_seeds_conversational_and_secrets(self, monkeypatch, tmp_path):
+        """A brand-new _default starts with conversational_tool + secrets_protector."""
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
+        tricks = await self._trick_files(app)
+        files = [t["file"] for t in tricks]
+        assert files == ["tricks/conversational_tool.py", "tricks/secrets_protector.py"]
+        assert all(t["enabled"] for t in tricks)
+
+    @pytest.mark.asyncio
+    async def test_restore_saved_default_preserves_edits(self, monkeypatch, tmp_path):
+        """A saved _default.json is restored, not re-seeded."""
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        self._write_saved_default(tmp_path, [
+            {"id": "abc123", "file": "tricks/json_mode.py", "enabled": False, "keyword": None},
+        ])
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        tricks = await self._trick_files(app)
+        assert [t["file"] for t in tricks] == ["tricks/json_mode.py"]
+        assert tricks[0]["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_restore_without_flag(self, monkeypatch, tmp_path):
+        """Without restore_saved, a saved file is ignored."""
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        self._write_saved_default(tmp_path, [
+            {"id": "abc123", "file": "tricks/json_mode.py", "enabled": False, "keyword": None},
+        ])
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
+        tricks = await self._trick_files(app)
+        assert tricks[0]["file"] == "tricks/conversational_tool.py"
+
+    @pytest.mark.asyncio
+    async def test_restore_plus_trick_paths_adds_missing_only(self, monkeypatch, tmp_path):
+        """CLI -t tricks are added to a restored _default without duplicating."""
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        self._write_saved_default(tmp_path, [
+            {"id": "abc123", "file": "tricks/conversational_tool.py", "enabled": True, "keyword": None},
+        ])
+        app = create_app(
+            model_url="", model_name=None, api_key="",
+            trick_paths=["tricks/conversational_tool.py", "tricks/json_mode.py"],
+            restore_saved=True,
+        )
+        tricks = await self._trick_files(app)
+        files = [t["file"] for t in tricks]
+        assert files.count("tricks/conversational_tool.py") == 1
+        assert files == ["tricks/conversational_tool.py", "tricks/json_mode.py"]
+
+    @pytest.mark.asyncio
+    async def test_missing_saved_file_seeds_defaults(self, monkeypatch, tmp_path):
+        """No saved file + restore_saved falls back to the default seed."""
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        tricks = await self._trick_files(app)
+        assert tricks[0]["file"] == "tricks/conversational_tool.py"
 
 
 class TestServerEndpoints:

@@ -28,7 +28,7 @@ from src.proxy import ProxyHandler
 from src.trick import (
     configure_modelset,
 )
-from src.trickset import Trickset, _default_logfile, _new_id
+from src.trickset import SCHEMA, Trickset, _default_logfile, _new_id
 
 
 class LogCaptureHandler(logging.Handler):
@@ -72,6 +72,10 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 TRICKSETS_DIR = CONFIG_DIR / "tricksets"
 BACKUPS_DIR = CONFIG_DIR / "backups"
 _SOURCE_TRICKSETS = Path(__file__).resolve().parent.parent / "tricksets"
+
+# Tricks seeded into a brand-new "_default" trickset when no tricks are
+# configured anywhere (no -t flags, no saved trickset file).
+DEFAULT_TRICKS = ["tricks/conversational_tool.py", "tricks/secrets_protector.py"]
 
 _PROXY_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?::\d+)?$")
 
@@ -190,6 +194,7 @@ def create_app(
     trickset_paths: list[str] | None = None,
     modelset_data: dict[str, str] | None = None,
     config_path: str | None = None,
+    restore_saved: bool = False,
 ) -> Starlette:
     tricksets: dict[str, Trickset] = {}
 
@@ -198,15 +203,29 @@ def create_app(
             ts = Trickset.load_from_file(tp)
             tricksets[ts.name] = ts
 
+    # Restore the saved "_default" trickset so dashboard edits survive restarts.
+    if restore_saved and "_default" not in tricksets:
+        saved_default = TRICKSETS_DIR / "_default.json"
+        if saved_default.exists():
+            try:
+                tricksets["_default"] = Trickset.load_from_file(str(saved_default))
+            except Exception:
+                logging.getLogger("petsitter").exception("Failed to restore saved _default trickset; falling back to defaults")
+
     if trick_paths:
         if "_default" in tricksets:
             existing = tricksets["_default"]
             for tp in trick_paths:
-                existing.add_trick(tp)
+                if tp not in existing.trick_paths:
+                    existing.add_trick(tp)
         else:
-            default_ts = Trickset("_default", "0.3.0", {"X-Title": "*", "Model": "*"}, list(trick_paths), file_path=str(TRICKSETS_DIR / "_default.json"))
+            default_ts = Trickset("_default", SCHEMA, {"X-Title": "*", "Model": "*"}, list(trick_paths), file_path=str(TRICKSETS_DIR / "_default.json"))
             default_ts.load_tricks()
             tricksets["_default"] = default_ts
+    elif "_default" not in tricksets:
+        default_ts = Trickset("_default", SCHEMA, {"X-Title": "*", "Model": "*"}, list(DEFAULT_TRICKS), file_path=str(TRICKSETS_DIR / "_default.json"))
+        default_ts.load_tricks()
+        tricksets["_default"] = default_ts
 
     handler = ProxyHandler(model_url, model_name, api_key, tricksets=tricksets)
 
@@ -713,7 +732,6 @@ def cli(
     """
     # Load persistent config
     cfg = load_config()
-    cfg_tricks = list(cfg.get("tricks", []))
     cfg_tricksets = list(cfg.get("tricksets", []))
     cfg_modelset = cfg.get("modelset")
 
@@ -761,7 +779,7 @@ def cli(
             lifecycle_tricks.append(f"{path}:{func}")
         else:
             load_tricks_list.append(_resolve_trick_path(arg) if "/" not in arg else arg)
-    trick_list = load_tricks_list if load_tricks_list else cfg_tricks
+    trick_list = list(load_tricks_list)
     trickset_list = list(tricksets) if tricksets else cfg_tricksets
 
     # Run lifecycle hooks (install, uninstall, startup, shutdown) on demand
@@ -797,6 +815,7 @@ def cli(
         trickset_paths=trickset_list,
         modelset_data=modelset_data,
         config_path=str(CONFIG_PATH),
+        restore_saved=True,
     )
 
     # Save config for next run (merging CLI state into persistent config)
