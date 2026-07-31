@@ -191,6 +191,80 @@ header .nav a:hover { background: #1a2a4d; }
   border-color: #5a8ab5;
 }
 
+/* settings */
+.settings-group {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  align-items: center;
+  gap: 12px 14px;
+  max-width: 640px;
+  margin-top: 8px;
+}
+
+.setting-row {
+  display: contents;
+}
+
+.setting-label {
+  font-size: 13px;
+  color: #7a9ab5;
+}
+
+#ts-settings-scope {
+  color: #8ab4ff;
+  font-family: monospace;
+}
+
+.settings-group select {
+  justify-self: start;
+  background: #0f0f1a;
+  color: #c8d6e5;
+  border: 1px solid #1e2a3a;
+  border-radius: 3px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.settings-group select:focus {
+  outline: none;
+  border-color: #5a8ab5;
+}
+
+.settings-group select option {
+  background: #12122a;
+  color: #c8d6e5;
+}
+
+.setting-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.setting-input-row input {
+  flex: 1;
+  min-width: 0;
+  background: #0f0f1a;
+  border: 1px solid #1e2a3a;
+  border-radius: 3px;
+  padding: 5px 10px;
+  color: #c8d6e5;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.setting-input-row input::placeholder {
+  color: #3a4a5a;
+}
+
+.setting-input-row input:focus {
+  outline: none;
+  border-color: #5a8ab5;
+}
+
 /* tricks */
 .two-col {
   display: grid;

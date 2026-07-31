@@ -30,23 +30,21 @@
 </div>
 </header>
 
+<div class="ts-pills" id="ts-pills"></div>
+
 <div class="tabs">
 <div class="tab active" data-tab="tricks" onclick="switchTab('tricks')">Tricks</div>
 <div class="tab" data-tab="models" onclick="switchTab('models')">Models</div>
 <div class="tab" data-tab="agents" onclick="switchTab('agents')">Agents</div>
 <div class="tab" data-tab="logs" onclick="switchTab('logs')">Logs</div>
+<div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
 </div>
 
 <div class="ts-bar" id="ts-bar">
-<div class="ts-pills" id="ts-pills"></div>
 <div class="ts-filters">
 <span onclick="editFilter(this,'X-Title')" title="Filter by X-Title header value">X-Title: <span class="val" id="ts-fx">*</span></span>
 <span onclick="editFilter(this,'Model')" title="Filter by Model header value">Model: <span class="val" id="ts-fm">*</span></span>
 <span onclick="editName()" title="Rename this trickset">Name: <span class="val" id="ts-name"></span></span>
-<span onclick="editLogfile()" title="Edit this trickset's log file path">Log: <span class="val" id="ts-logfile"></span></span>
-<span title="Log level for this trickset's log file">Level: <select id="ts-loglevel" onchange="saveLoglevel(this.value)">
-<option value="DEBUG">DEBUG</option><option value="INFO">INFO</option><option value="WARNING">WARNING</option><option value="ERROR">ERROR</option>
-</select></span>
 <span class="ts-delete" onclick="if (confirm('Delete trickset \"' + selectedTrickset + '\"? This cannot be undone.')) deleteTrickset()" title="Delete this trickset">delete</span>
 </div>
 </div>
@@ -132,6 +130,32 @@
 </div>
 </div>
 
+<!-- === SETTINGS TAB === -->
+<div class="tab-pane" id="tab-settings">
+<div class="card">
+<h2>Settings</h2>
+<div class="section-desc">Logging settings for the current trickset (<span id="ts-settings-scope"></span>).</div>
+<div class="settings-group">
+<div class="setting-row">
+<label class="setting-label" for="ts-loglevel">Log level</label>
+<select id="ts-loglevel" onchange="saveLoglevel(this.value)" title="Log level for this trickset's log file">
+<option value="DEBUG">DEBUG</option>
+<option value="INFO">INFO</option>
+<option value="WARNING">WARNING</option>
+<option value="ERROR">ERROR</option>
+</select>
+</div>
+<div class="setting-row">
+<label class="setting-label" for="ts-logfile">Log file</label>
+<div class="setting-input-row">
+<input type="text" id="ts-logfile" spellcheck="false" autocomplete="off" placeholder="e.g. ~/.cache/petsitter/tricksets/name.log" title="Absolute path to this trickset's log file">
+<button class="btn btn-secondary btn-sm" onclick="saveLogfile()" title="Save this trickset's log file path">Save</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
 <!-- === HELP TAB === -->
 <div class="tab-pane" id="tab-help">
 <div class="card">
@@ -204,7 +228,7 @@ async function loadHelpContent() {
 window.addEventListener('hashchange', function() {
   var p = parseHash();
   switchTab(p.tab);
-  if (p.ts !== '_default' || p.tab === 'tricks' || p.tab === 'models') {
+  if (p.ts !== '_default' || p.tab === 'tricks' || p.tab === 'models' || p.tab === 'settings') {
     selectedTrickset = p.ts;
     if (document.querySelector('#ts-pills .pill[data-name="' + p.ts + '"]')) switchTrickset(p.ts);
   }
@@ -429,7 +453,8 @@ async function switchTrickset(name) {
     document.getElementById('ts-fx').textContent = ts.filters['X-Title'] || '*';
     document.getElementById('ts-fm').textContent = ts.filters['Model'] || '*';
     document.getElementById('ts-name').textContent = ts.name;
-    document.getElementById('ts-logfile').textContent = ts.logfile || '';
+    document.getElementById('ts-settings-scope').textContent = ts.name;
+    document.getElementById('ts-logfile').value = ts.logfile || '';
     document.getElementById('ts-loglevel').value = ts.loglevel || 'INFO';
     if (document.querySelector('.tab.active')?.dataset.tab === 'models') {
       renderModels(selectedTrickset, _cachedConfiguredModels);
@@ -483,23 +508,10 @@ function editName() {
   inp.select();
 }
 
-function editLogfile() {
-  const valSpan = document.getElementById('ts-logfile');
-  const orig = valSpan.textContent;
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.size = 45;
-  inp.value = orig;
-  inp.onblur = function() { saveLogfile(valSpan, inp.value, orig); };
-  inp.onkeydown = function(e) { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { valSpan.textContent = orig; } };
-  valSpan.textContent = '';
-  valSpan.appendChild(inp);
-  inp.focus();
-  inp.select();
-}
-
-async function saveLogfile(valSpan, val, orig) {
-  valSpan.textContent = val || orig;
+async function saveLogfile() {
+  const input = document.getElementById('ts-logfile');
+  const val = input.value.trim();
+  const orig = (loadedTricksets[selectedTrickset] || {}).logfile || '';
   if (val === orig) return;
   try {
     await fetchJSON('/api/tricksets/' + encodeURIComponent(selectedTrickset), {
@@ -507,8 +519,9 @@ async function saveLogfile(valSpan, val, orig) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({logfile: val}),
     });
+    loadedTricksets[selectedTrickset].logfile = val || '';
     showToast('Log file updated');
-  } catch(e) { showToast(e.message, true); valSpan.textContent = orig; }
+  } catch(e) { showToast(e.message, true); input.value = orig; }
 }
 
 async function saveLoglevel(val) {
@@ -518,6 +531,7 @@ async function saveLoglevel(val) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({loglevel: val}),
     });
+    loadedTricksets[selectedTrickset].loglevel = val;
     showToast('Log level set to ' + val);
   } catch(e) { showToast(e.message, true); }
 }
