@@ -42,11 +42,28 @@ class McpToolsTrick(Trick):
     __brief__ = "Injects MCP tools from an mcp.json file into any harness"
     __display_name__ = "MCP Tools"
     prompt_keyword = "mcp"
+    config_fields = [
+        {
+            "key": "mcp_path",
+            "label": "MCP config file",
+            "description": (
+                "Path to the mcp.json file describing the tools to inject. "
+                "Leave blank for the default ~/.config/petsitter/mcp.json."
+            ),
+            "type": "path",
+            "default": str(DEFAULT_MCP_PATH),
+        },
+    ]
 
     def __init__(self, mcp_path: str = ""):
-        self._mcp_path = Path(mcp_path) if mcp_path else DEFAULT_MCP_PATH
+        self.mcp_path = Path(mcp_path).expanduser() if mcp_path else DEFAULT_MCP_PATH
         self._tools: list[dict] = []
         self._tool_names: set[str] = set()
+
+    def configure(self, config: dict) -> None:
+        super().configure(config)
+        self.mcp_path = Path(self.mcp_path).expanduser() if self.mcp_path else DEFAULT_MCP_PATH
+        self._load_tools()
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -58,7 +75,7 @@ class McpToolsTrick(Trick):
     def handle_prompt_keyword(self, request: str, messages: list | None = None, payload: dict | None = None) -> dict | None:
         path = request.strip()
         if path:
-            self._mcp_path = Path(path).expanduser()
+            self.mcp_path = Path(path).expanduser()
             self._load_tools()
             return {
                 "role": "assistant",
@@ -72,7 +89,7 @@ class McpToolsTrick(Trick):
         return {
             "role": "assistant",
             "content": (
-                f"MCP path: {self._mcp_path}\n"
+                f"MCP path: {self.mcp_path}\n"
                 f"Tools loaded: {len(self._tools)}\n"
                 f"Names: {tool_names}"
             ),
@@ -114,14 +131,14 @@ class McpToolsTrick(Trick):
         self._tools = []
         self._tool_names = set()
 
-        if not self._mcp_path.exists():
-            logger.info("MCP file not found: %s", self._mcp_path)
+        if not self.mcp_path.exists():
+            logger.info("MCP file not found: %s", self.mcp_path)
             return
 
         try:
-            data = json.loads(self._mcp_path.read_text(encoding="utf-8"))
+            data = json.loads(self.mcp_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
-            logger.error("Failed to read MCP file %s: %s", self._mcp_path, e)
+            logger.error("Failed to read MCP file %s: %s", self.mcp_path, e)
             return
 
         for tool in data.get("tools", []):
@@ -131,5 +148,5 @@ class McpToolsTrick(Trick):
                 self._tool_names.add(tool["name"])
 
         logger.info(
-            "Loaded %d MCP tool(s) from %s", len(self._tools), self._mcp_path
+            "Loaded %d MCP tool(s) from %s", len(self._tools), self.mcp_path
         )

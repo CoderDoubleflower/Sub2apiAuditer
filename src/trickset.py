@@ -39,6 +39,7 @@ class Trickset:
         trick_keywords: list[str | None] | None = None,
         logfile: str | None = None,
         loglevel: str = "INFO",
+        trick_configs: dict[str, dict[str, Any]] | None = None,
     ):
         self.name = name
         self.schema = schema
@@ -52,6 +53,7 @@ class Trickset:
         self.trick_keywords = list(trick_keywords) if trick_keywords else [None] * len(trick_paths)
         while len(self.trick_keywords) < len(self.trick_paths):
             self.trick_keywords.append(None)
+        self.trick_configs: dict[str, dict[str, Any]] = dict(trick_configs or {})
         self.file_path = file_path
         self.parameters: dict[str, Any] = parameters or {}
         self.models: dict[str, str] = models or {}
@@ -66,6 +68,7 @@ class Trickset:
                 "file": path,
                 "enabled": self.trick_enabled[i] if i < len(self.trick_enabled) else True,
                 "keyword": self.trick_keywords[i] if i < len(self.trick_keywords) else None,
+                "config": self.trick_configs.get(self.trick_ids[i] if i < len(self.trick_ids) else "", {}),
             }
             for i, path in enumerate(self.trick_paths)
         ]
@@ -79,9 +82,16 @@ class Trickset:
 
     def load_tricks(self) -> None:
         self.tricks = []
-        for path in self.trick_paths:
+        for i, path in enumerate(self.trick_paths):
             cls = load_trick_from_path(path)
-            self.tricks.append(cls())
+            trick = cls()
+            tid = self.trick_ids[i] if i < len(self.trick_ids) else _new_id()
+            if tid in self.trick_configs:
+                try:
+                    trick.configure(self.trick_configs[tid])
+                except Exception:
+                    logger.exception("trickset '%s': failed to configure trick %s", self.name, path)
+            self.tricks.append(trick)
             self.get_logger().info("trickset '%s': loaded trick %s", self.name, path)
 
     def get_logger(self) -> logging.Logger:
@@ -155,6 +165,7 @@ class Trickset:
         trick_enabled: list[bool] = []
         trick_ids: list[str] = []
         trick_keywords: list[str | None] = []
+        trick_configs: dict[str, dict[str, Any]] = {}
         for entry in raw_tricks:
             if isinstance(entry, str):
                 trick_paths.append(entry)
@@ -162,15 +173,19 @@ class Trickset:
                 trick_ids.append(_new_id())
                 trick_keywords.append(None)
             elif isinstance(entry, dict):
+                eid = entry.get("id") or _new_id()
                 trick_paths.append(entry.get("file", ""))
                 trick_enabled.append(entry.get("enabled", True))
-                trick_ids.append(entry.get("id") or _new_id())
+                trick_ids.append(eid)
                 trick_keywords.append(entry.get("keyword"))
+                cfg = entry.get("config")
+                if isinstance(cfg, dict) and cfg:
+                    trick_configs[eid] = dict(cfg)
         parameters = data.get("parameters", {})
         models = data.get("models", {})
         logfile = data.get("logfile")
         loglevel = data.get("loglevel", "INFO")
-        ts = Trickset(name, schema, filters, trick_paths, file_path=str(p), parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords, logfile=logfile, loglevel=loglevel)
+        ts = Trickset(name, schema, filters, trick_paths, file_path=str(p), parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords, logfile=logfile, loglevel=loglevel, trick_configs=trick_configs)
         ts.load_tricks()
         ts.get_logger().info("trickset '%s': loaded %d tricks from %s", name, len(ts.tricks), path)
         return ts
@@ -217,6 +232,16 @@ class Trickset:
                     if self.trick_keywords[i] != val:
                         self.trick_keywords[i] = val
                         changed = True
+                if "config" in entry:
+                    val = entry["config"] or {}
+                    if self.trick_configs.get(eid) != val:
+                        self.trick_configs[eid] = dict(val)
+                        changed = True
+                    if i < len(self.tricks):
+                        try:
+                            self.tricks[i].configure(dict(val))
+                        except Exception:
+                            logger.exception("trickset '%s': failed to apply config to %s", self.name, eid)
         return changed
 
     def add_trick(self, path: str, enabled: bool = True, keyword: str | None = None) -> Trick:
@@ -240,6 +265,7 @@ class Trickset:
                     del self.trick_enabled[i]
                 if i < len(self.trick_keywords):
                     del self.trick_keywords[i]
+                self.trick_configs.pop(trick_id, None)
                 self.get_logger().info("trickset '%s': removed trick %s", self.name, tid)
                 return True
         return False

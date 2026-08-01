@@ -144,6 +144,45 @@ class TestServerEndpoints:
             assert response.json() == {"status": "ok"}
 
     @pytest.mark.asyncio
+    async def test_loaded_trick_persists_across_restart(self, monkeypatch, tmp_path):
+        """A trick loaded via the dashboard survives a restart."""
+        from httpx import AsyncClient, ASGITransport
+
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/api/tricks/load", json={"path": "tricks/mcp_tools.py"})
+            assert r.status_code == 200
+            names = [t["name"] for t in (await ac.get("/api/tricks")).json()]
+            assert "McpToolsTrick" in names
+            # the trickset file was written, not config.json
+            assert (tmp_path / "_default.json").exists()
+
+        app2 = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as ac:
+            names = [t["name"] for t in (await ac.get("/api/tricks")).json()]
+            assert "McpToolsTrick" in names
+
+    @pytest.mark.asyncio
+    async def test_unloaded_trick_persists_across_restart(self, monkeypatch, tmp_path):
+        """A trick unloaded via the dashboard stays gone after a restart."""
+        from httpx import AsyncClient, ASGITransport
+
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/api/tricks/load", json={"path": "tricks/json_mode.py"})
+            assert r.status_code == 200
+            r = await ac.post("/api/tricks/unload", json={"name": "JsonModeTrick"})
+            assert r.status_code == 200
+
+        app2 = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
+        async with AsyncClient(transport=ASGITransport(app=app2), base_url="http://test") as ac:
+            names = [t["name"] for t in (await ac.get("/api/tricks")).json()]
+            assert "JsonModeTrick" not in names
+
+
+    @pytest.mark.asyncio
     async def test_chat_completions_endpoint(self):
         """Chat completions endpoint proxies requests."""
         from httpx import AsyncClient, ASGITransport

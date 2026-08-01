@@ -305,6 +305,12 @@ class ProxyHandler:
             return ts
         return None
 
+    def _persist_ts(self, ts: Trickset) -> None:
+        """Persist a trickset so dashboard edits survive restarts."""
+        if not ts.file_path:
+            ts.file_path = str(Path.home() / ".config" / "petsitter" / "tricksets" / f"{ts.name}.json")
+        ts.save()
+
     def add_trick(self, path: str, ts_name: str | None = None) -> Trick:
         if ts_name:
             ts = self.tricksets.get(ts_name)
@@ -324,6 +330,7 @@ class ProxyHandler:
             ts.get_logger().info(
                 "trickset '%s': installed %s (%s)", ts.name, type(trick).__name__, path,
             )
+        self._persist_ts(ts)
         return trick
 
     def remove_trick(self, class_name: str, ts_name: str | None = None) -> bool:
@@ -357,12 +364,14 @@ class ProxyHandler:
                 removed = ts.remove_trick(tid)
                 if removed:
                     ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
+                    self._persist_ts(ts)
                 return removed
             return False
         for ts in self.tricksets.values():
             tid = ts.find_trick_id_by_class(class_name)
             if tid and ts.remove_trick(tid):
                 ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
+                self._persist_ts(ts)
                 return True
         return False
 
@@ -373,11 +382,15 @@ class ProxyHandler:
                 return False
             tid = ts.find_trick_id_by_class(class_name)
             if tid:
-                return ts.reorder_trick(tid, new_index)
+                changed = ts.reorder_trick(tid, new_index)
+                if changed:
+                    self._persist_ts(ts)
+                return changed
             return False
         for ts in self.tricksets.values():
             tid = ts.find_trick_id_by_class(class_name)
             if tid and ts.reorder_trick(tid, new_index):
+                self._persist_ts(ts)
                 return True
         return False
 
@@ -387,9 +400,10 @@ class ProxyHandler:
             for i, t in enumerate(ts.tricks):
                 name = type(t).__name__
                 path = ts.trick_paths[i] if i < len(ts.trick_paths) else ""
+                tid = ts.trick_ids[i] if i < len(ts.trick_ids) else ""
                 result.append({
                     "name": name,
-                    "id": ts.trick_ids[i] if i < len(ts.trick_ids) else "",
+                    "id": tid,
                     "display_name": getattr(t, "__display_name__", None) or name,
                     "brief": getattr(t, "__brief__", ""),
                     "module": type(t).__module__,
@@ -399,6 +413,8 @@ class ProxyHandler:
                     "keywords": list(t.keywords),
                     "prompt_keyword": (ts.trick_keywords[i] if i < len(ts.trick_keywords) and ts.trick_keywords[i] else None) or getattr(t, "prompt_keyword", "") or "",
                     "required_models": list(t.required_models),
+                    "config_fields": list(getattr(type(t), "config_fields", []) or []),
+                    "config": ts.trick_configs.get(tid, {}),
                 })
         return result
 

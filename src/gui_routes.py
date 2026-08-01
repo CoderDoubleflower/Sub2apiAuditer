@@ -16,16 +16,8 @@ _log_capture = None
 _config_path: str | None = None
 
 
-def _collect_trick_paths(handler) -> list[str]:
-    paths = set()
-    for ts_name, ts in handler.tricksets.items():
-        if ts_name == "_default":
-            paths.update(ts.trick_paths)
-    return sorted(paths, key=lambda p: (p.count("/"), p))
-
-
 def _save_full_config(handler, api_key):
-    """Persist current dashboard model + trick settings to config file."""
+    """Persist current dashboard model settings to the config file."""
     if not _config_path:
         return
     modelset = {}
@@ -55,7 +47,6 @@ def _save_full_config(handler, api_key):
         "model_name": handler.model_name or "",
         "api_key": api_key,
         "modelset": modelset,
-        "tricks": _collect_trick_paths(handler),
     }
     Path(_config_path).write_text(json.dumps(config, indent=2) + "\n")
 
@@ -64,7 +55,7 @@ def _introspect_trick_file(path: Path) -> dict:
     """Extract display_name, brief, keywords, and prompt_keyword from a trick module without instantiating."""
     import importlib.util
 
-    info = {"path": str(path), "display_name": None, "brief": None, "keywords": [], "prompt_keyword": "", "mtime": path.stat().st_mtime_ns}
+    info = {"path": str(path), "display_name": None, "brief": None, "keywords": [], "prompt_keyword": "", "config_fields": [], "mtime": path.stat().st_mtime_ns}
     try:
         spec = importlib.util.spec_from_file_location(path.stem, str(path))
         if spec and spec.loader:
@@ -77,6 +68,7 @@ def _introspect_trick_file(path: Path) -> dict:
                     info["brief"] = getattr(obj, "__brief__", "")
                     info["keywords"] = list(getattr(obj, "keywords", []) or [])
                     info["prompt_keyword"] = getattr(obj, "prompt_keyword", "") or ""
+                    info["config_fields"] = list(getattr(obj, "config_fields", []) or [])
                     break
     except Exception:
         pass
@@ -142,7 +134,6 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
         ts_name = data.get("trickset")
         try:
             trick = handler.add_trick(path, ts_name=ts_name)
-            _save_full_config(handler, api_key)
             return JSONResponse({"success": True, "name": type(trick).__name__})
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=400)
@@ -153,7 +144,6 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
         name = data.get("name", "")
         ts_name = data.get("trickset")
         if handler.remove_trick(name, ts_name=ts_name):
-            _save_full_config(handler, api_key)
             return JSONResponse({"success": True})
         return JSONResponse({"success": False, "error": f"Trick '{name}' not found"}, status_code=404)
     app.add_route("/api/tricks/unload", gui_tricks_unload, methods=["POST"])

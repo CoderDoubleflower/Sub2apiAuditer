@@ -478,6 +478,7 @@ def create_app(
                 new_enabled: list[bool] = []
                 new_ids: list[str] = []
                 new_keywords: list[str | None] = []
+                new_configs: dict[str, dict] = {}
                 for entry in raw:
                     if isinstance(entry, str):
                         new_paths.append(entry)
@@ -485,14 +486,18 @@ def create_app(
                         new_ids.append(_new_id())
                         new_keywords.append(None)
                     elif isinstance(entry, dict):
+                        eid = entry.get("id") or _new_id()
                         new_paths.append(entry.get("file", ""))
                         new_enabled.append(entry.get("enabled", True))
-                        new_ids.append(entry.get("id") or _new_id())
+                        new_ids.append(eid)
                         new_keywords.append(entry.get("keyword"))
+                        if isinstance(entry.get("config"), dict):
+                            new_configs[eid] = dict(entry["config"])
                 ts.trick_paths = new_paths
                 ts.trick_enabled = new_enabled
                 ts.trick_ids = new_ids
                 ts.trick_keywords = new_keywords
+                ts.trick_configs = new_configs
                 ts.load_tricks()
                 ts.save()
         if "parameters" in data:

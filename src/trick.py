@@ -182,6 +182,9 @@ class Trick:
     Subclasses should set:
         __brief__: Short one-line description shown in the dashboard.
         __display_name__: Human-readable name (defaults to class name).
+        config_fields: Optional list of configurable key/value settings
+            (see ``Trick.configure`` for the schema). Tricks with config
+            fields get a gear icon in the dashboard to edit them.
 
     Lifecycle hooks (called automatically by the framework):
         install()    — when the trick is first added to a trickset
@@ -195,6 +198,26 @@ class Trick:
     required_models: list[str] = ["default"]
     __brief__: str = ""
     __display_name__: str = ""
+    config_fields: list[dict] = []
+
+    def configure(self, config: dict) -> None:
+        """Apply per-trick key/value config to this instance.
+
+        Keys must match entries in ``config_fields``. Values are stored on
+        the instance as attributes of the same name, so hooks can read them
+        from ``self``. Subclasses that need to react to a change (e.g. reload
+        a file) should override and call ``super().configure(config)``.
+
+        Each ``config_fields`` entry is a dict:
+            key (str, required)         — config key / attribute name
+            label (str, required)       — friendly name shown in the dashboard
+            description (str, optional) — help text shown under the label
+            type (str, optional)        — "text" | "number" | "boolean" (default "text")
+            default (optional)          — fallback value when none is stored
+            required (bool, optional)   — whether a value must be provided
+        """
+        for key, value in config.items():
+            setattr(self, key, value)
 
     def install(self) -> None:
         """Called when the trick is first added to a trickset.
