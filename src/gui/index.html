@@ -129,6 +129,20 @@
 </div>
 <div class="log-viewer" id="log-viewer"><div class="loader">Loading logs...</div></div>
 </div>
+
+<div class="card">
+<div class="log-controls">
+<h2 style="margin:0">Trickset Log</h2>
+<select id="tslog-select" onchange="refreshTricksetLog()" title="Trickset whose log file to view">
+<option value="">Select a trickset</option>
+</select>
+<button class="btn btn-secondary btn-sm" onclick="refreshTricksetLog()" title="Reload the trickset's log file">Refresh</button>
+<button class="btn btn-secondary btn-sm" onclick="clearTricksetLogDisplay()" title="Clear the trickset log view">Clear</button>
+<span class="log-count" id="tslog-count"></span>
+</div>
+<div class="log-file" id="tslog-file" title="Log file path"></div>
+<div class="log-viewer" id="tslog-viewer"><div class="empty">Select a trickset to view its log file.</div></div>
+</div>
 </div>
 
 <!-- === SETTINGS TAB === -->
@@ -193,6 +207,13 @@ function switchTab(name) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
   if (name === 'help') loadHelpContent();
   if (name === 'models') renderModels(selectedTrickset, _cachedConfiguredModels);
+  if (name === 'logs') {
+    populateTsLogSelect();
+    refreshTricksetLog();
+    startTricksetLogPolling();
+  } else {
+    stopTricksetLogPolling();
+  }
   updateHash();
 }
 
@@ -489,7 +510,11 @@ async function switchTrickset(name) {
     document.getElementById('ts-settings-scope').textContent = ts.name;
     document.getElementById('ts-logfile').value = ts.logfile || '';
     document.getElementById('ts-loglevel').value = ts.loglevel || 'INFO';
-    if (document.querySelector('.tab.active')?.dataset.tab === 'models') {
+    if (document.querySelector('.tab.active')?.dataset.tab === 'logs') {
+      populateTsLogSelect();
+      document.getElementById('tslog-select').value = name;
+      refreshTricksetLog();
+    } else if (document.querySelector('.tab.active')?.dataset.tab === 'models') {
       renderModels(selectedTrickset, _cachedConfiguredModels);
     } else {
       fetchTricks();
@@ -838,6 +863,68 @@ function clearLogDisplay() {
   document.getElementById('log-viewer').innerHTML = '';
   document.getElementById('log-count').textContent = '0 entries';
   setTimeout(startLogStream, 100);
+}
+
+// ---- trickset log ----
+let tslogPoll = null;
+
+function populateTsLogSelect() {
+  const sel = document.getElementById('tslog-select');
+  const names = Object.keys(loadedTricksets);
+  const cur = sel.value || (names.includes(selectedTrickset) ? selectedTrickset : '');
+  sel.innerHTML = '<option value="">Select a trickset</option>' +
+    names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  sel.value = cur;
+}
+
+async function refreshTricksetLog() {
+  const name = document.getElementById('tslog-select').value;
+  const viewer = document.getElementById('tslog-viewer');
+  const fileEl = document.getElementById('tslog-file');
+  const countEl = document.getElementById('tslog-count');
+  if (!name) {
+    viewer.innerHTML = '<div class="empty">Select a trickset to view its log file.</div>';
+    fileEl.textContent = '';
+    countEl.textContent = '';
+    return;
+  }
+  try {
+    const d = await fetchJSON('/api/tricksets/' + encodeURIComponent(name) + '/log?lines=200');
+    fileEl.textContent = d.missing ? '(no log file yet) ' + d.logfile : d.logfile;
+    fileEl.title = d.logfile;
+    viewer.innerHTML = '';
+    if (d.missing) {
+      viewer.innerHTML = '<div class="empty">No log entries yet for this trickset.</div>';
+      countEl.textContent = '0 entries';
+      return;
+    }
+    const atBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 40;
+    for (const line of d.lines) {
+      const m = line.match(/^(\d{4}-\d{2}-\d{2}[^ ]* [^ ]+) (\w+)\s+(.*)$/);
+      let time = '', level = 'INFO', msg = line;
+      if (m) { time = m[1]; level = m[2]; msg = m[3]; }
+      viewer.insertAdjacentHTML('beforeend',
+        `<div class="log-entry lvl-${escapeHtml(level)}"><span class="time">${escapeHtml(time)}</span>${escapeHtml(level)}: ${escapeHtml(msg)}</div>`);
+    }
+    countEl.textContent = viewer.querySelectorAll('.log-entry').length + ' entries';
+    if (atBottom) viewer.scrollTop = viewer.scrollHeight;
+  } catch(e) {
+    viewer.innerHTML = '<div class="empty">Failed to load trickset log: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function startTricksetLogPolling() {
+  stopTricksetLogPolling();
+  tslogPoll = setInterval(refreshTricksetLog, 2000);
+}
+
+function stopTricksetLogPolling() {
+  if (tslogPoll) { clearInterval(tslogPoll); tslogPoll = null; }
+}
+
+function clearTricksetLogDisplay() {
+  document.getElementById('tslog-viewer').innerHTML = '';
+  document.getElementById('tslog-count').textContent = '0 entries';
 }
 
 // ---- agents ----

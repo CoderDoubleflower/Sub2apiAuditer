@@ -756,6 +756,17 @@ header .nav a:hover { background: #1a2a4d; }
 .log-entry.lvl-ERROR { color: #ff6b8a; }
 .log-entry.lvl-CRITICAL { color: #ff3b5a; font-weight: 700; }
 .log-count { font-size: 12px; color: #4a6572; margin-left: auto; }
+.log-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #5a7a95;
+  padding: 6px 10px;
+  border: 1px solid #1e2a3a;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
 .loader { color: #5a7a95; font-size: 13px; padding: 10px 0; }
 .empty { color: #4a6572; font-size: 13px; font-style: italic; padding: 10px 0; }
 

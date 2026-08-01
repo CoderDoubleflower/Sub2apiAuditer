@@ -415,6 +415,24 @@ def create_app(
         return JSONResponse(info)
     app.add_route("/api/tricksets/{name}", get_trickset, methods=["GET"])
 
+    async def get_trickset_log(request: Request) -> Response:
+        name = request.path_params.get("name")
+        ts = handler.tricksets.get(name)
+        if not ts:
+            return JSONResponse({"error": f"Trickset '{name}' not found"}, status_code=404)
+        logfile = ts.logfile or _default_logfile(ts.name)
+        lines: list[str] = []
+        missing = not Path(logfile).exists()
+        if not missing:
+            limit = int(request.query_params.get("lines", "200"))
+            try:
+                with open(logfile, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.read().splitlines()[-limit:]
+            except OSError:
+                missing = True
+        return JSONResponse({"name": name, "logfile": logfile, "missing": missing, "lines": lines})
+    app.add_route("/api/tricksets/{name}/log", get_trickset_log, methods=["GET"])
+
     async def update_trickset(request: Request) -> Response:
         name = request.path_params.get("name")
         ts = handler.tricksets.get(name)
