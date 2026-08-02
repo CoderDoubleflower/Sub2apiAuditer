@@ -359,7 +359,12 @@ def create_app(
         if parsed is None:
             return JSONResponse({"error": "Invalid /p/ proxy target", "type": "invalid_request"}, status_code=400)
         host, rest = parsed
-        upstream = f"https://{host}{rest}"
+
+        if 'localhost' in host or '127.0.0.1' in host:
+          upstream = f"http://{host}{rest}"
+        else:
+          upstream = f"https://{host}{rest}"
+
         forward_headers = {}
         if request.headers.get("authorization"):
             forward_headers["Authorization"] = request.headers["authorization"]
