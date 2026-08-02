@@ -143,18 +143,3 @@ petsitter.egg-info/
 # swapharness clones the prompt repo here on first use
 system-prompts-and-models-of-ai-tools/
 
-# project scratch / working notes
-agent-plan.md
-agents.md
-andybot_psuedocode.txt
-architecture.md
-convo-example.txt
-design.txt
-fe-updates.md
-models.html
-next-steps.md
-p.md
-sample.md
-schema-update
-trickset-iface.md
-petsitter-type.png
