@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from src.proxy import ProxyHandler
+from src.proxy import CONFIG_MAGIC, ProxyHandler
 from src.trick import Trick
 
 
@@ -156,6 +156,71 @@ class TestProxyHandler:
 
             assert result["choices"][0]["message"]["content"] == "Hello!"
             mock_client.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_config_magic_returns_diag(self):
+        """__petsitter_config__ returns a config snapshot without calling upstream,
+        after running the same filter/pre-hook pipeline."""
+
+        class MarkerTrick(Trick):
+            def pre_hook(self, context: list, params: dict) -> list:
+                context[-1]["content"] = context[-1]["content"] + " [marker]"
+                return context
+
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test-model",
+            tricks=[MarkerTrick()],
+        )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_mock_response({}))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            payload = {"messages": [{"role": "user", "content": CONFIG_MAGIC}]}
+            result = await handler.chat_completions(payload)
+
+        assert mock_client.post.call_count == 0
+        content = result["choices"][0]["message"]["content"]
+        diag = json.loads(content)
+        assert diag["petsitter_config_diag"] is True
+        assert diag["model"]["url"] == "http://localhost:11434"
+        assert diag["request"]["upstream"]["url"].endswith("/v1/chat/completions")
+        transformed = diag["request"]["transformed_messages"]
+        assert any(" [marker]" in m.get("content", "") for m in transformed)
+        assert diag["trickset"]["tricks"][0]["class"] == "MarkerTrick"
+
+    @pytest.mark.asyncio
+    async def test_config_magic_not_triggered_by_normal_message(self):
+        """A normal message still proxies upstream; magic is exact-match only."""
+
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test-model",
+        )
+
+        mock_response = create_mock_response({
+            "choices": [{"message": {"role": "assistant", "content": "Hello!"}}]
+        })
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            for content in (
+                f"tell me about {CONFIG_MAGIC}",
+                "why is the sky blue",
+                CONFIG_MAGIC + "\nextra line",
+            ):
+                result = await handler.chat_completions(
+                    {"messages": [{"role": "user", "content": content}]}
+                )
+                assert result["choices"][0]["message"]["content"] == "Hello!"
+
+        assert mock_client.post.call_count == 3
 
     @pytest.mark.asyncio
     async def test_chat_completions_applies_tricks(self):

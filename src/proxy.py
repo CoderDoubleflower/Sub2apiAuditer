@@ -31,6 +31,8 @@ from src.trickset import Trickset
 
 logger = logging.getLogger("petsitter")
 
+CONFIG_MAGIC = "__petsitter_config__"
+
 
 class ProxyHandler:
 
@@ -94,6 +96,91 @@ class ProxyHandler:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
+
+    @staticmethod
+    def _is_config_request(messages: list) -> bool:
+        """True when the request is exactly the config diagnostic magic string."""
+        return (
+            len(messages) == 1
+            and isinstance(messages[0], dict)
+            and messages[0].get("role") == "user"
+            and isinstance(messages[0].get("content"), str)
+            and messages[0]["content"].strip() == CONFIG_MAGIC
+        )
+
+    @staticmethod
+    def _trick_diag_entry(trick: Trick) -> dict:
+        cfg = {}
+        for field in getattr(trick, "config_fields", []) or []:
+            key = field.get("key")
+            if key and hasattr(trick, key):
+                cfg[key] = getattr(trick, key)
+        return {
+            "class": type(trick).__name__,
+            "display_name": getattr(trick, "__display_name__", "") or type(trick).__name__,
+            "brief": getattr(trick, "__brief__", ""),
+            "keywords": list(getattr(trick, "keywords", []) or []),
+            "config": cfg,
+            "config_fields": list(getattr(trick, "config_fields", []) or []),
+        }
+
+    def _config_diag_result(
+        self,
+        payload: dict,
+        x_title: str,
+        original_messages: list,
+        messages: list,
+        tricks: list[Trick],
+        matched_ts_name: str | None,
+        target: str,
+        upstream_payload: dict,
+        upstream_headers: dict,
+    ) -> dict:
+        """Snapshot the config/tricks/pipeline as a synthetic chat completion."""
+        default_cfg = get_model_config("default")
+        diag = {
+            "service": "petsitter",
+            "petsitter_config_diag": True,
+            "model": {
+                "url": default_cfg.get("url", ""),
+                "name": default_cfg.get("model", ""),
+                "api_key": "set" if (default_cfg.get("key") or self.api_key) else "",
+                "target": target,
+            },
+            "request": {
+                "x_title": x_title,
+                "model": payload.get("model"),
+                "stream": payload.get("stream", False),
+                "original_messages": original_messages,
+                "transformed_messages": messages,
+                "upstream": {
+                    "url": target,
+                    "payload": upstream_payload,
+                    "auth": "bearer" if any(k.lower() == "authorization" for k in upstream_headers) else "none",
+                },
+            },
+            "trickset": {
+                "name": matched_ts_name,
+                "tricks": [self._trick_diag_entry(t) for t in tricks],
+            },
+            "tricksets": {name: ts.to_dict() for name, ts in self.tricksets.items()},
+            "capabilities": self._merge_capabilities(tricks),
+        }
+        return {
+            "id": "chatcmpl-petsitter-config",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "petsitter.config",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(diag, indent=2),
+                },
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
 
     def _apply_system_prompt_tricks(self, system_prompt: str, tricks: list[Trick] | None = None) -> str:
         if tricks is None:
@@ -480,6 +567,7 @@ class ProxyHandler:
         rid_token = set_request_id(rid)
         ts_token = None
         tricks: list[Trick] = []
+        matched_ts_name: str | None = None
         log = get_logger()
         try:
             default_cfg = get_model_config("default")
@@ -487,6 +575,8 @@ class ProxyHandler:
             if not upstream_request_url and not upstream_url:
                 raise ValueError("No upstream model configured. Set a model URL via the dashboard.")
             messages = payload.get("messages", [])
+            original_messages = list(messages)
+            is_config_request = self._is_config_request(messages)
 
             log.info("%srequest: model=%r x_title=%r", request_tag(), payload.get("model", ""), x_title)
 
@@ -511,6 +601,7 @@ class ProxyHandler:
                 ts = self.tricksets.get(ts_name)
                 if ts:
                     tricks = list(ts.tricks)
+                    matched_ts_name = ts.name
                     ts_token = set_current_trickset(ts)
                     log = get_logger()
                     log.info(
@@ -525,6 +616,7 @@ class ProxyHandler:
             else:
                 tricks, matched_ts = self._matching_tricks(x_title, model)
                 if matched_ts is not None:
+                    matched_ts_name = matched_ts.name
                     ts_token = set_current_trickset(matched_ts)
                     log = get_logger()
                 elif not tricks:
@@ -555,6 +647,13 @@ class ProxyHandler:
                 upstream_payload = build_upstream_payload(default_cfg, messages, payload)
                 upstream_headers = self._build_headers(default_cfg)
                 target = f"{upstream_url}/v1/chat/completions"
+
+            if is_config_request:
+                log.info("%sconfig diagnostic requested via magic string", request_tag())
+                return self._config_diag_result(
+                    payload, x_title, original_messages, messages, tricks,
+                    matched_ts_name, target, upstream_payload, upstream_headers,
+                )
 
             log.info("%scalling upstream: %s", request_tag(), target)
             log.debug("%supstream payload: %s", request_tag(), json.dumps(upstream_payload, indent=2))

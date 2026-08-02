@@ -224,6 +224,47 @@ class TestPPathEndpoint:
         assert "".join(reasoning_parts) == "Thinking step by step."
 
     @pytest.mark.asyncio
+    async def test_p_route_config_magic_streams_diag(self):
+        """__petsitter_config__ through /p/ returns a streamed diag without hitting upstream."""
+        from httpx import AsyncClient, ASGITransport
+
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=create_mock_response({}))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                async with ac.stream(
+                    "POST",
+                    "/p/build.nvidia.com/v1/chat/completions",
+                    json={
+                        "messages": [{"role": "user", "content": "__petsitter_config__"}],
+                        "model": "nvidia-model",
+                        "stream": True,
+                    },
+                    headers={"Authorization": "Bearer sk-nvidia"},
+                ) as response:
+                    assert response.status_code == 200
+                    body = b"".join([chunk async for chunk in response.aiter_bytes()]).decode()
+
+        assert mock_client.post.call_count == 0
+        events = [line for line in body.splitlines() if line.startswith("data: ")]
+        assert events[-1] == "data: [DONE]"
+        chunks = [json.loads(ev[len("data: "):]) for ev in events[:-1]]
+        content = "".join(
+            c["choices"][0]["delta"].get("content", "")
+            for c in chunks
+            if "content" in c["choices"][0]["delta"]
+        )
+        diag = json.loads(content)
+        assert diag["petsitter_config_diag"] is True
+        assert diag["request"]["upstream"]["url"] == "https://build.nvidia.com/v1/chat/completions"
+        assert diag["request"]["upstream"]["auth"] == "bearer"
+
+    @pytest.mark.asyncio
     async def test_p_route_generic_passthrough(self):
         """Unknown paths under /p/ are forwarded transparently."""
         from httpx import AsyncClient, ASGITransport
