@@ -179,7 +179,12 @@ class TestProxyHandler:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            payload = {"messages": [{"role": "user", "content": CONFIG_MAGIC}]}
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "BLAH BLAH BLAH"},
+                    {"role": "user", "content": CONFIG_MAGIC},
+                ]
+            }
             result = await handler.chat_completions(payload)
 
         assert mock_client.post.call_count == 0

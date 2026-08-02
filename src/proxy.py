@@ -99,13 +99,15 @@ class ProxyHandler:
 
     @staticmethod
     def _is_config_request(messages: list) -> bool:
-        """True when the request is exactly the config diagnostic magic string."""
+        """True when the last message is exactly the config diagnostic magic string."""
+        if not messages:
+            return False
+        last = messages[-1]
         return (
-            len(messages) == 1
-            and isinstance(messages[0], dict)
-            and messages[0].get("role") == "user"
-            and isinstance(messages[0].get("content"), str)
-            and messages[0]["content"].strip() == CONFIG_MAGIC
+            isinstance(last, dict)
+            and last.get("role") == "user"
+            and isinstance(last.get("content"), str)
+            and last["content"].strip() == CONFIG_MAGIC
         )
 
     @staticmethod
