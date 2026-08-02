@@ -84,6 +84,27 @@ curl http://localhost:8080/p/build.nvidia.com/v1/chat/completions \
   -d '{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"hi"}]}'
 ```
 
+## Config Diagnostic (`__petsitter_config__`)
+
+Send a single user message containing exactly `__petsitter_config__` and petsitter answers with a snapshot of its configuration instead of calling the upstream model:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"my-model","messages":[{"role":"user","content":"__petsitter_config__"}]}'
+```
+
+The request is an **exact copy of the real traversal**: it runs the same keyword filtering, trickset selection, system-prompt injection, and pre-hooks, and builds the actual upstream URL, payload, and headers that a real request would use — then returns a snapshot in place of the upstream HTTP call. No upstream request is made, and your API key is never included (only its presence as `"set"`, `"bearer"`, or `"none"`).
+
+The snapshot includes:
+
+- **`model`** - configured upstream URL, model name, key presence, and the resolved target URL
+- **`request`** - `X-Title`, model, `stream`, plus `original_messages` vs `transformed_messages` (exactly what upstream would receive) and the would-be upstream `payload`/`url`/`auth`
+- **`trickset`** - the matched trickset and each active trick (class, display name, keywords, per-trick config)
+- **`tricksets`** - every loaded trickset and `capabilities`
+
+It works on `/v1/chat/completions` and `/p/<host>/.../chat/completions`, and honors `stream: true` (returned as a normal chunked stream). It only triggers on an exact full-message match, so ordinary conversation is unaffected.
+
 ## CLI Options
 
 | Option | Short | Description |
@@ -325,7 +346,7 @@ The method receives the text after `mycommand: ` and can return:
 ### Capability Injection
 
  * [Tool Calling](#tool-calling) - Add tool calling to models without native support
- * [Andybot Toolcall](#andybot-toolcall) - Conversational persona tool calling for small/older models 
+ * [Conversational Tool](#conversational-tool) - ANDYBOT persona tool calling for small/older models 
  * [MCP Tools](#mcp-tools) - Inject tools from an mcp.json file into any harness
 
 ### Pipeline
@@ -378,24 +399,22 @@ Enables tool calling for models without native support by injecting tool definit
 ./petsitter -u http://localhost:11434 -t tricks/tool_call.py
 ```
 
-### Andybot Toolcall
+### Conversational Tool
 
-[tricks/andybot_toolcall.py](tricks/andybot_toolcall.py)
+[tricks/conversational_tool.py](tricks/conversational_tool.py)
 
-An alternative approach to tool calling that uses a conversational persona instead of structured JSON output. The model says `DEAR ANDYBOT, <FUNCTION>` and ANDYBOT collects each required parameter through dialogue:
+A conversational approach to tool calling that uses the ANDYBOT persona instead of structured JSON output. The model says `DEAR ANDYBOT, <FUNCTION>` and ANDYBOT collects each parameter through dialogue:
 
 1. Model recognises it needs to call a tool and says `DEAR ANDYBOT, GET_WEATHER`
 2. ANDYBOT asks: *"Can you provide location?"*
 3. Model responds: `Paris`
 4. ANDYBOT builds the tool call and returns it to the application
 
-This works well with small models (3B and under) and older models that struggle with reliable JSON output or native `tool_calls`. The conversational flow lets them express intent naturally instead of wrestling with syntax.
+This works well with small models (3B and under) and older models that struggle with reliable JSON output or native `tool_calls`. The conversational flow lets them express intent naturally instead of wrestling with syntax. It also supports inline arguments (`DEAR ANDYBOT, GET_WEATHER location=Paris`), optional parameters, and "I am confused"/"skip" recovery. The persona is only injected when the request actually carries `tools`.
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/andybot_toolcall.py -t tricks/json_mode.py
+petsitter -u http://localhost:11434 -t tricks/conversational_tool.py -t tricks/json_mode.py
 ```
-
-For a more advanced version with inline-argument parsing, confusion recovery, and multi-turn state management, see [`tricks/conversational_tool.py`](tricks/conversational_tool.py).
 
 ### MCP Tools
 
