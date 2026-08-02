@@ -95,6 +95,13 @@ def _parse_p_path(path: str) -> tuple[str, str] | None:
     return host, ("/" + sub.lstrip("/") if sep else "")
 
 
+def _chunk_text(text: str, size: int = 64) -> list[str]:
+    """Split text into fixed-size pieces, preserving whitespace/content exactly."""
+    if not text:
+        return []
+    return [text[i:i + size] for i in range(0, len(text), size)]
+
+
 async def _generic_proxy(target: str, request: Request) -> Response:
     """Transparently forward a request to *target* and stream back the response."""
     body = await request.body()
@@ -265,23 +272,34 @@ def create_app(
         try:
             result = await handler.chat_completions(payload, x_title=x_title, upstream_request_url=upstream_request_url, forward_headers=forward_headers)
             message = result["choices"][0]["message"]
-            stream_result = {
+            base = {
                 "id": result.get("id", "chatcmpl-petsitter"),
                 "object": "chat.completion.chunk",
                 "created": result.get("created", __import__("time").time()),
                 "model": result.get("model", "unknown"),
-                "choices": [{
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": message.get("content"),
-                    },
-                    "finish_reason": result["choices"][0].get("finish_reason", "stop"),
-                }],
             }
-            if "tool_calls" in message:
-                stream_result["choices"][0]["delta"]["tool_calls"] = message["tool_calls"]
-            yield f"data: {json.dumps(stream_result)}\n\n"
+
+            def emit(delta: dict, finish_reason: str | None = None) -> str:
+                chunk = dict(base)
+                chunk["choices"] = [{
+                    "index": 0,
+                    "delta": delta,
+                    "finish_reason": finish_reason,
+                }]
+                return f"data: {json.dumps(chunk)}\n\n"
+
+            yield emit({"role": "assistant", "content": ""})
+            reasoning = message.get("reasoning_content")
+            if reasoning:
+                for part in _chunk_text(reasoning):
+                    yield emit({"reasoning_content": part})
+            content = message.get("content")
+            if content:
+                for part in _chunk_text(content):
+                    yield emit({"content": part})
+            if "tool_calls" in message and message["tool_calls"]:
+                yield emit({"tool_calls": message["tool_calls"]})
+            yield emit({}, finish_reason=result["choices"][0].get("finish_reason", "stop"))
             yield "data: [DONE]\n\n"
         except Exception as e:
             import traceback

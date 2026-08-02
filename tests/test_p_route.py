@@ -1,5 +1,7 @@
 """Tests for the /p/ path-prefix transparent proxy."""
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -160,6 +162,66 @@ class TestPPathEndpoint:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/p/ht%20tp.com/v1/models")
             assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_completions_returns_valid_chunked_stream(self):
+        """stream:true returns a spec-shaped chunked SSE stream even though the
+        upstream call is buffered, preserving reasoning_content."""
+        from httpx import AsyncClient, ASGITransport
+
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
+
+        long_content = "Hello! " * 20
+        mock_response = create_mock_response({
+            "id": "chatcmpl-test",
+            "model": "test-model",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": long_content,
+                    "reasoning_content": "Thinking step by step.",
+                },
+                "finish_reason": "stop",
+            }],
+        })
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                async with ac.stream(
+                    "POST",
+                    "/p/build.nvidia.com/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": "Hi"}], "stream": True},
+                ) as response:
+                    assert response.status_code == 200
+                    assert response.headers["content-type"].startswith("text/event-stream")
+                    body = b"".join([chunk async for chunk in response.aiter_bytes()]).decode()
+
+        events = [line for line in body.splitlines() if line.startswith("data: ")]
+        assert events[-1] == "data: [DONE]"
+        chunks = [json.loads(ev[len("data: "):]) for ev in events[:-1]]
+        assert len(chunks) >= 5
+        for c in chunks:
+            assert c["object"] == "chat.completion.chunk"
+            assert c["choices"][0]["index"] == 0
+        assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
+        assert chunks[-1]["choices"][0]["delta"] == {}
+        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+        content_parts = [
+            c["choices"][0]["delta"].get("content")
+            for c in chunks
+            if "content" in c["choices"][0]["delta"]
+        ]
+        assert "".join(content_parts) == long_content
+        reasoning_parts = [
+            c["choices"][0]["delta"].get("reasoning_content")
+            for c in chunks
+            if "reasoning_content" in c["choices"][0]["delta"]
+        ]
+        assert "".join(reasoning_parts) == "Thinking step by step."
 
     @pytest.mark.asyncio
     async def test_p_route_generic_passthrough(self):
