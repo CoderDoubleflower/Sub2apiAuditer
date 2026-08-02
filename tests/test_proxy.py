@@ -117,6 +117,46 @@ class TestProxyHandler:
         result = handler._apply_system_prompt_tricks("")
         assert "[test system]" in result
 
+    def test_apply_system_prompt_tricks_does_not_stack(self):
+        """System prompt tricks append once, even if already present."""
+        trick = MockTrick("test")
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test",
+            tricks=[trick],
+        )
+        result = handler._apply_system_prompt_tricks("original [test system]")
+        assert result.count("[test system]") == 1
+
+    def test_apply_system_prompt_tricks_appends_not_replaces(self):
+        """Existing system prompt is preserved when a trick adds to it."""
+        trick = MockTrick("test")
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test",
+            tricks=[trick],
+        )
+        result = handler._apply_system_prompt_tricks("BLAH BLAH BLAH")
+        assert result.startswith("BLAH BLAH BLAH")
+        assert "[test system]" in result
+
+    def test_apply_system_prompt_tricks_replace_mode(self):
+        """A trick with replace_system_prompt=True swaps the whole prompt."""
+
+        class SwapTrick(MockTrick):
+            replace_system_prompt = True
+
+            def system_prompt(self, to_add: str) -> str:
+                return "SWAPPED PROMPT"
+
+        handler = ProxyHandler(
+            model_url="http://localhost:11434",
+            model_name="test",
+            tricks=[SwapTrick("swap")],
+        )
+        result = handler._apply_system_prompt_tricks("BLAH BLAH BLAH")
+        assert result == "SWAPPED PROMPT"
+
     def test_merge_capabilities(self):
         """Capabilities are merged from all tricks."""
         trick1 = MockTrick("trick1")
@@ -226,6 +266,27 @@ class TestProxyHandler:
                 assert result["choices"][0]["message"]["content"] == "Hello!"
 
         assert mock_client.post.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_conversational_tool_pre_hook_appends_system_prompt(self):
+        """ConversationalToolTrick appends its persona to an existing system
+        message (with dedup) instead of replacing it."""
+        from tricks.conversational_tool import ConversationalToolTrick
+
+        trick = ConversationalToolTrick()
+        tools = [{"function": {"name": "get_weather", "parameters": {"properties": {}, "required": []}}}]
+
+        context = [
+            {"role": "system", "content": "BLAH BLAH BLAH"},
+            {"role": "user", "content": "what's the weather"},
+        ]
+        result = trick.pre_hook(context, {"tools": tools})
+        sys_msg = result[0]
+        assert sys_msg["content"].startswith("BLAH BLAH BLAH")
+        assert "ANDYBOT" in sys_msg["content"]
+
+        again = trick.pre_hook(result, {"tools": tools})
+        assert again[0]["content"].count("You are an assistant for a user") == 1
 
     @pytest.mark.asyncio
     async def test_chat_completions_applies_tricks(self):

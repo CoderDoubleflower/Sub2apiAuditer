@@ -196,6 +196,7 @@ class Trick:
     keywords: list[str] = []
     prompt_keyword: str = ""
     required_models: list[str] = ["default"]
+    replace_system_prompt: bool = False
     __brief__: str = ""
     __display_name__: str = ""
     config_fields: list[dict] = []
@@ -264,6 +265,12 @@ class Trick:
 
     def system_prompt(self, to_add: str) -> str:
         """Add instructions to the system prompt.
+
+        By default the returned text is *appended* to the existing system
+        prompt (deduplicated, so repeated injection doesn't stack). Set
+        ``replace_system_prompt = True`` on the trick to instead have the
+        return value *replace* the whole system prompt (e.g. swapharness,
+        which genuinely swaps in a complete harness prompt).
 
         Args:
             to_add: The current system prompt content.

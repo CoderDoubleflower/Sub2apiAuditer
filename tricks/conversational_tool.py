@@ -96,10 +96,15 @@ class ConversationalToolTrick(Trick):
         if not tools:
             return context
 
+        sp = self.system_prompt("")
+        if not sp:
+            return context
+
         if context and context[0].get("role") == "system":
-            context[0]["content"] = self.system_prompt("")
+            if sp not in context[0]["content"]:
+                context[0]["content"] = context[0]["content"] + "\n" + sp
         else:
-            context.insert(0, {"role": "system", "content": self.system_prompt("")})
+            context.insert(0, {"role": "system", "content": sp})
 
         return context
 

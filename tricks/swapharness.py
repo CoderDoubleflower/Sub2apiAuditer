@@ -21,6 +21,7 @@ CACHE_DIR = Path.home() / ".config" / "petsitter" / "harnesses"
 
 class SwapHarnessTrick(Trick):
     prompt_keyword = "swapharness"
+    replace_system_prompt = True
     __brief__ = "Browse and swap system prompts from AI tool repos"
     __display_name__ = "Swap Harness"
 

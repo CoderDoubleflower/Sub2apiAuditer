@@ -191,7 +191,14 @@ class ProxyHandler:
         for trick in tricks:
             before = len(result)
             addition = trick.system_prompt(result)
-            if addition:
+            if not addition:
+                get_logger().debug(
+                    "%ssystem_prompt hook: %s (no change)", request_tag(), type(trick).__name__,
+                )
+                continue
+            if getattr(trick, "replace_system_prompt", False):
+                result = addition
+            elif addition not in result:
                 result = result + "\n" + addition if result else addition
             get_logger().debug(
                 "%ssystem_prompt hook: %s (%d -> %d chars)",

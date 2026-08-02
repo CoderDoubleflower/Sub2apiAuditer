@@ -177,6 +177,16 @@ def system_prompt(self, to_add: str) -> str:
     return "IMPORTANT: Respond only in valid JSON. No markdown, no explanations."
 ```
 
+By default the returned text is **appended** to any existing system prompt, deduplicated so repeated injection doesn't stack. If a trick genuinely needs to *replace* the whole system prompt (e.g. swapping in a complete harness), set `replace_system_prompt = True` on the class:
+
+```python
+class SwapHarnessTrick(Trick):
+    replace_system_prompt = True
+
+    def system_prompt(self, to_add: str) -> str:
+        return "FULL REPLACEMENT PROMPT"
+```
+
 ### `pre_hook(context: list, params: dict) -> list`
 
 **When:** Called after the system prompt is set, before the model receives the messages.
