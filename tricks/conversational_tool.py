@@ -31,6 +31,8 @@ class ConversationalToolTrick(Trick):
         """Show only function names and descriptions."""
         if self._model_has_native_tools:
             return ""
+        if not self._tools_cache:
+            return ""
         
         tool_list = ""
         if self._tools_cache:
