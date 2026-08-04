@@ -66,7 +66,7 @@ class SwapHarnessTrick(Trick):
             return {"role": "assistant", "content": f"Not found: {path}"}
 
         if target.is_dir():
-            entries = sorted(target.iterdir())
+            entries = sorted(e for e in target.iterdir() if not e.name.startswith("."))
             lines = [f"📁  {path or ''}" if path else "Select a harness\n"]
             for e in entries:
                 icon = "📁" if e.is_dir() else "📄"
@@ -82,11 +82,8 @@ class SwapHarnessTrick(Trick):
 
             if not has_question_tool:
                 lines.append("")
-                lines.append("⚠️  No question tool found. Invoke with (swapharness: <word>) where word is one of:")
-                lines.extend(f"  - {e.name}" for e in entries if e.is_dir())
+                lines.append("(swapharness: <word>) to browse a folder, or (swapharness: path/to/file) to select a harness.")
 
-            lines.append("")
-            lines.append("(swapharness: path/to/file) to select")
             return {"role": "assistant", "content": "\n".join(lines)}
 
         content = target.read_text(encoding="utf-8", errors="replace")
