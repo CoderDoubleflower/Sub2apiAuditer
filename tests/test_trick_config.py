@@ -104,6 +104,42 @@ class TestTricksetConfig:
         assert not ts.merge_tricks([{"id": "zzz", "config": {"mcp_path": "/x"}}])
 
 
+class TestKeywordSerialization:
+    """Trickset entries carry the effective keyword, not a bare override."""
+
+    @staticmethod
+    def _ts(tmp_path, path):
+        ts = Trickset(
+            name="_default",
+            schema=SCHEMA,
+            filters={"X-Title": "*", "Model": "*"},
+            trick_paths=[path],
+            file_path=str(tmp_path / "_default.json"),
+            logfile=str(tmp_path / "_default.log"),
+        )
+        ts.load_tricks()
+        return ts
+
+    def test_default_keyword_is_serialized_not_null(self, tmp_path):
+        ts = self._ts(tmp_path, "tricks/swapharness.py")
+        assert ts._trick_entries()[0]["keyword"] == "swapharness"
+
+    def test_no_keyword_field_when_trick_has_none(self, tmp_path):
+        ts = self._ts(tmp_path, "tricks/conversational_tool.py")
+        assert "keyword" not in ts._trick_entries()[0]
+
+    def test_override_beats_default(self, tmp_path):
+        ts = self._ts(tmp_path, "tricks/swapharness.py")
+        ts.trick_keywords[0] = "custom"
+        assert ts._trick_entries()[0]["keyword"] == "custom"
+
+    def test_keyword_survives_save_and_reload(self, tmp_path):
+        ts = self._ts(tmp_path, "tricks/swapharness.py")
+        ts.save()
+        loaded = Trickset.load_from_file(str(tmp_path / "_default.json"))
+        assert loaded._trick_entries()[0]["keyword"] == "swapharness"
+
+
 @pytest.mark.asyncio
 class TestConfigApi:
     """The dashboard API exposes and persists per-trick config."""

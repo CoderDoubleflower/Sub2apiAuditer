@@ -10,6 +10,18 @@ from src.proxy import CONFIG_MAGIC, ProxyHandler
 from src.trick import Trick
 
 
+@pytest.fixture(autouse=True)
+def _clean_global_model_config():
+    """Reset module-level model config so tests don't inherit state from other files."""
+    import src.trick as trick_mod
+
+    trick_mod._modelset = {}
+    trick_mod._model_url = ""
+    trick_mod._model_name = ""
+    trick_mod._api_key = ""
+    yield
+
+
 class KeywordTrick(Trick):
     """Mock trick with keyword activation."""
 
@@ -546,6 +558,13 @@ class TestFindPromptKeywordPatterns:
         assert len(result) == 1
         assert result[0]["request"] == "hello (world) foo"
 
+    def test_nested_parens_with_trailing_space(self):
+        handler = ProxyHandler("http://localhost:11434", "test")
+        result = handler._find_prompt_keyword_patterns("(blah: (something) )")
+        assert len(result) == 1
+        assert result[0]["keyword"] == "blah"
+        assert result[0]["request"] == "(something)"
+
     def test_deeply_nested(self):
         handler = ProxyHandler("http://localhost:11434", "test")
         result = handler._find_prompt_keyword_patterns("(test: a (b (c) d) e)")
@@ -575,17 +594,36 @@ class TestFindPromptKeywordPatterns:
     def test_unbalanced_parens(self):
         handler = ProxyHandler("http://localhost:11434", "test")
         result = handler._find_prompt_keyword_patterns("(test: hello (world)")
-        assert result == []
+        # malformed outer pattern is skipped; the balanced (world) still matches
+        assert len(result) == 1
+        assert result[0]["keyword"] == "world"
+        assert result[0]["request"] == ""
 
     def test_no_parens_at_all(self):
         handler = ProxyHandler("http://localhost:11434", "test")
         result = handler._find_prompt_keyword_patterns("test: hello)")
         assert result == []
 
-    def test_missing_space_after_colon(self):
+    def test_space_after_colon_optional(self):
         handler = ProxyHandler("http://localhost:11434", "test")
         result = handler._find_prompt_keyword_patterns("(test:hello)")
-        assert result == []
+        assert len(result) == 1
+        assert result[0]["keyword"] == "test"
+        assert result[0]["request"] == "hello"
+
+    def test_empty_colon_no_space(self):
+        handler = ProxyHandler("http://localhost:11434", "test")
+        result = handler._find_prompt_keyword_patterns("(swapharness:)")
+        assert len(result) == 1
+        assert result[0]["keyword"] == "swapharness"
+        assert result[0]["request"] == ""
+
+    def test_bare_parens(self):
+        handler = ProxyHandler("http://localhost:11434", "test")
+        result = handler._find_prompt_keyword_patterns("(swapharness)")
+        assert len(result) == 1
+        assert result[0]["keyword"] == "swapharness"
+        assert result[0]["request"] == ""
 
     def test_empty_request(self):
         handler = ProxyHandler("http://localhost:11434", "test")
@@ -723,6 +761,52 @@ class TestFilterPromptKeywords:
         messages = [{"role": "user", "content": "(CMD: hello)"}]
         modified, response = handler._filter_prompt_keywords(messages)
         assert response["content"] == "ok: hello"
+
+    def test_bare_keyword_triggers_empty_request(self):
+        class PromptTrick(Trick):
+            prompt_keyword = "cmd"
+            def handle_prompt_keyword(self, request: str, messages: list | None = None, payload: dict | None = None) -> dict | None:
+                return {"role": "assistant", "content": f"bare: {request}"}
+
+        handler = ProxyHandler("http://localhost:11434", "test", tricks=[PromptTrick()])
+        messages = [{"role": "user", "content": "cmd"}]
+        modified, response = handler._filter_prompt_keywords(messages)
+        assert response["content"] == "bare: "
+        assert modified[0]["content"] == ""
+
+    def test_bare_keyword_with_trailing_punctuation(self):
+        class PromptTrick(Trick):
+            prompt_keyword = "cmd"
+            def handle_prompt_keyword(self, request: str, messages: list | None = None, payload: dict | None = None) -> dict | None:
+                return {"role": "assistant", "content": "got it"}
+
+        handler = ProxyHandler("http://localhost:11434", "test", tricks=[PromptTrick()])
+        messages = [{"role": "user", "content": "cmd?"}]
+        modified, response = handler._filter_prompt_keywords(messages)
+        assert response["content"] == "got it"
+
+    def test_bare_keyword_case_insensitive(self):
+        class PromptTrick(Trick):
+            prompt_keyword = "cmd"
+            def handle_prompt_keyword(self, request: str, messages: list | None = None, payload: dict | None = None) -> dict | None:
+                return {"role": "assistant", "content": "yep"}
+
+        handler = ProxyHandler("http://localhost:11434", "test", tricks=[PromptTrick()])
+        messages = [{"role": "user", "content": " CMD "}]
+        modified, response = handler._filter_prompt_keywords(messages)
+        assert response["content"] == "yep"
+
+    def test_partial_keyword_message_does_not_trigger(self):
+        class PromptTrick(Trick):
+            prompt_keyword = "cmd"
+            def handle_prompt_keyword(self, request: str, messages: list | None = None, payload: dict | None = None) -> dict | None:
+                return {"role": "assistant", "content": "boom"}
+
+        handler = ProxyHandler("http://localhost:11434", "test", tricks=[PromptTrick()])
+        messages = [{"role": "user", "content": "run the cmd now"}]
+        modified, response = handler._filter_prompt_keywords(messages)
+        assert response is None
+        assert modified[0]["content"] == "run the cmd now"
 
     def test_earliest_in_text_order_wins(self):
         class FirstTrick(Trick):

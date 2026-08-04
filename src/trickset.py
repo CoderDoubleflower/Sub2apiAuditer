@@ -62,16 +62,21 @@ class Trickset:
         self.loglevel = (loglevel or "INFO").upper()
 
     def _trick_entries(self) -> list[dict]:
-        return [
-            {
+        entries = []
+        for i, path in enumerate(self.trick_paths):
+            override = self.trick_keywords[i] if i < len(self.trick_keywords) else None
+            trick = self.tricks[i] if i < len(self.tricks) else None
+            effective = override or (getattr(trick, "prompt_keyword", "") or "")
+            entry = {
                 "id": self.trick_ids[i] if i < len(self.trick_ids) else _new_id(),
                 "file": path,
                 "enabled": self.trick_enabled[i] if i < len(self.trick_enabled) else True,
-                "keyword": self.trick_keywords[i] if i < len(self.trick_keywords) else None,
                 "config": self.trick_configs.get(self.trick_ids[i] if i < len(self.trick_ids) else "", {}),
             }
-            for i, path in enumerate(self.trick_paths)
-        ]
+            if effective:
+                entry["keyword"] = effective
+            entries.append(entry)
+        return entries
 
     def matches(self, x_title: str, model: str) -> bool:
         for key, pattern in self.filters.items():

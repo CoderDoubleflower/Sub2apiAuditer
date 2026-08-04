@@ -257,36 +257,40 @@ class ProxyHandler:
                 continue
             while j < len(text) and (text[j].isalnum() or text[j] in ('_', '/')):
                 j += 1
-            if j >= len(text) or text[j] != ':':
+            kw_end = j
+            if j >= len(text):
                 i += 1
                 continue
-            j += 1
-            if j >= len(text) or not text[j].isspace():
-                i += 1
-                continue
-            while j < len(text) and text[j].isspace():
+            if text[j] == ':':
                 j += 1
-            depth = 1
-            k = j
-            while k < len(text) and depth > 0:
-                if text[k] == '(':
-                    depth += 1
-                elif text[k] == ')':
-                    depth -= 1
-                k += 1
-            if depth == 0:
-                kw_end = text.index(':', i + 1)
-                keyword = text[i + 1:kw_end].strip()
+                while j < len(text) and text[j].isspace():
+                    j += 1
+                depth = 1
+                k = j
+                while k < len(text) and depth > 0:
+                    if text[k] == '(':
+                        depth += 1
+                    elif text[k] == ')':
+                        depth -= 1
+                    k += 1
+                if depth != 0:
+                    i += 1
+                    continue
                 request = text[j:k - 1].strip()
-                results.append({
-                    "start": i,
-                    "end": k,
-                    "keyword": keyword,
-                    "request": request,
-                })
-                i = k
+            elif text[j] == ')':
+                k = j + 1
+                request = ""
             else:
                 i += 1
+                continue
+            keyword = text[i + 1:kw_end].strip()
+            results.append({
+                "start": i,
+                "end": k,
+                "keyword": keyword,
+                "request": request,
+            })
+            i = k
         return results
 
     def _filter_prompt_keywords(self, messages: list, payload: dict | None = None) -> tuple[list, dict | None]:
@@ -305,7 +309,16 @@ class ProxyHandler:
 
             patterns = self._find_prompt_keyword_patterns(content)
             if not patterns:
-                break
+                bare = content.strip().rstrip(".,!?")
+                if bare and bare.lower() in registry:
+                    patterns = [{
+                        "keyword": bare,
+                        "request": "",
+                        "start": 0,
+                        "end": len(content),
+                    }]
+                else:
+                    break
 
             recognized: list[dict] = []
             unrecognized: list[str] = []

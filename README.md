@@ -320,6 +320,13 @@ curl http://localhost:8080/v1/chat/completions \
 
 Prompt keywords let you inject commands to petsitter itself inline in your message using the format `(<keyword>: <request>)`. The framework scans for registered keywords, strips the matching pattern before the model sees it, and routes the request to the appropriate handler.
 
+The syntax is forgiving - a registered keyword can be triggered any of these ways:
+
+- `(swapharness: opencode/claude.md)` - parenthesized with a request
+- `(swapharness:opencode/claude.md)` - the space after the colon is optional
+- `(swapharness:)` or `(swapharness)` - empty request (e.g. list the harness tree)
+- just `swapharness` - a bare keyword alone in a message means an empty request
+
 This is separate from trick [keyword activation](#keyword-activated) - keywords activate or deactivate tricks for the current request, while **prompt keywords** are commands to petsitter that bypass the model entirely.
 
 ### How to register a prompt keyword
