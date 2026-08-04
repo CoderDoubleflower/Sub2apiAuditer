@@ -211,7 +211,7 @@ class TestProxyHandler:
 
     @pytest.mark.asyncio
     async def test_config_magic_returns_diag(self):
-        """__petsitter_config__ returns a config snapshot without calling upstream,
+        """__hp_config__ returns a config snapshot without calling upstream,
         after running the same filter/pre-hook pipeline."""
 
         class MarkerTrick(Trick):

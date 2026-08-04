@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Petsitter CLI entry point."""
+"""HarnessPatch CLI entry point."""
 
 from src.server import cli
 

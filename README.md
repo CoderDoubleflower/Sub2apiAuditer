@@ -1,20 +1,20 @@
 <p align="center">
 <img width="480" alt="logo" src="https://github.com/user-attachments/assets/d2fd4fd3-52b3-4bb2-9c41-6623a07251a5" /><br/>
-<a href=https://pypi.org/project/petsitter><img src=https://badge.fury.io/py/petsitter.svg/?2></a>
+<a href=https://pypi.org/project/harnesspatch><img src=https://badge.fury.io/py/harnesspatch.svg/?2></a>
 </p>
 
-**Petsitter** is an OpenAI-compatible proxy that layers smart harnesses on top of language models to give them capabilities they don't natively have. It also makes finicky behaviors reliable and dependable.
+**HarnessPatch** is an OpenAI-compatible proxy that layers smart harnesses on top of language models to give them capabilities they don't natively have. It also makes finicky behaviors reliable and dependable.
 
 You install it, point it at a model, load a few example tricks, and suddenly things that model couldn't do before - tool calling, structured JSON, multi-step reasoning - start working. Then you think: *"oh, I could make it do X"* - and you write your own trick.
 
-The built-in tricks are starting points. Tweak them, combine them, or use them as a reference to build something entirely different. Petsitter isn't a turnkey product; it's a kit.
+The built-in tricks are starting points. Tweak them, combine them, or use them as a reference to build something entirely different. HarnessPatch isn't a turnkey product; it's a kit.
 
 ## How It Works
 
-<img alt="Petsitter_Intelligent_Proxy_-_Slide_2a" src="https://github.com/user-attachments/assets/b7a2a344-f438-4370-aee8-fd6f2dfe0756" />
+<img alt="HarnessPatch_Intelligent_Proxy_-_Slide_2a" src="https://github.com/user-attachments/assets/b7a2a344-f438-4370-aee8-fd6f2dfe0756" />
 
 
-Petsitter intercepts every request/response pair and runs it through a pipeline of hooks. Each trick picks which hooks it needs:
+HarnessPatch intercepts every request/response pair and runs it through a pipeline of hooks. Each trick picks which hooks it needs:
 
 1. **`system_prompt`** - Inject instructions before the model sees the conversation
 2. **`pre_hook`** - Modify messages or inject tool definitions before the API call
@@ -29,12 +29,12 @@ You can also edit tricks, reorder them, disable, add new ones, and filter them:
 <img alt="2026-07-04_15-13" src="https://github.com/user-attachments/assets/c623f29a-8724-4fdb-bc6d-a76c3022183a" />
 
 
-*Petsitter* is part of the [DAY50](https://github.com/day50-dev/) suite of open-source tools for local AI workflows and constructing better agents.
+*HarnessPatch* is part of the [DAY50](https://github.com/day50-dev/) suite of open-source tools for local AI workflows and constructing better agents.
 
-The core goals of Petsitter are:
+The core goals of HarnessPatch are:
 - **No model changes required** - Works with any OpenAI-compatible endpoint
 - **Pluggable architecture** - Write your own tricks in Python. (Skills are included in `.agents`)
-- **Transparent to your app** - Point your existing code at petsitter instead of the model
+- **Transparent to your app** - Point your existing code at harnesspatch instead of the model
 - **Mix and match** - Combine multiple tricks for compound effects
 
 ---
@@ -44,31 +44,31 @@ The core goals of Petsitter are:
 Quickest way:
 
 ```bash
-$ uvx petsitter
+$ uvx harnesspatch
 ```
 
 Or you can do one off invocation:
 ```bash
-# Run petsitter with tricks
-petsitter -u http://localhost:11434 \
+# Run harnesspatch with tricks
+harnesspatch -u http://localhost:11434 \
           -m llama3:8b \
           -t tricks/json_mode.py \
           -t tricks/tool_call.py \
           -l localhost:8080
 ```
 
-Either way, now you can point your AI applications to `http://localhost:8080/v1` and you're going through the petsitter middleware.
+Either way, now you can point your AI applications to `http://localhost:8080/v1` and you're going through the harnesspatch middleware.
 
 ## Zero-Config Host Override (`/p/`)
 
-The `/p/` route is the easy way to proxy an existing endpoint: prefix whatever host you already use with `http://localhost:8080/p/` and petsitter handles the rest. No trickset to create, no model config to swap.
+The `/p/` route is the easy way to proxy an existing endpoint: prefix whatever host you already use with `http://localhost:8080/p/` and harnesspatch handles the rest. No trickset to create, no model config to swap.
 
 ```
 # Instead of https://build.nvidia.com/...
 http://localhost:8080/p/build.nvidia.com/...
 ```
 
-Point your client's `base_url` at `http://localhost:8080/p/<host>` and petsitter forwards everything after the host to `https://<host>/<rest>` - whatever path the client appends. It's a dumb-client-friendly trick: the client just appends `/chat/completions`, `/v1/models`, or anything else to the base you give it, and petsitter proxies it through the normal trick pipeline.
+Point your client's `base_url` at `http://localhost:8080/p/<host>` and harnesspatch forwards everything after the host to `https://<host>/<rest>` - whatever path the client appends. It's a dumb-client-friendly trick: the client just appends `/chat/completions`, `/v1/models`, or anything else to the base you give it, and harnesspatch proxies it through the normal trick pipeline.
 
 Key behaviors:
 
@@ -84,14 +84,14 @@ curl http://localhost:8080/p/build.nvidia.com/v1/chat/completions \
   -d '{"model":"meta/llama-3.3-70b-instruct","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-## Config Diagnostic (`__petsitter_config__`)
+## Config Diagnostic (`__hp_config__`)
 
-Send a single user message containing exactly `__petsitter_config__` and petsitter answers with a snapshot of its configuration instead of calling the upstream model:
+Send a single user message containing exactly `__hp_config__` and harnesspatch answers with a snapshot of its configuration instead of calling the upstream model:
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"my-model","messages":[{"role":"user","content":"__petsitter_config__"}]}'
+  -d '{"model":"my-model","messages":[{"role":"user","content":"__hp_config__"}]}'
 ```
 
 The request is an **exact copy of the real traversal**: it runs the same keyword filtering, trickset selection, system-prompt injection, and pre-hooks, and builds the actual upstream URL, payload, and headers that a real request would use — then returns a snapshot in place of the upstream HTTP call. No upstream request is made, and your API key is never included (only its presence as `"set"`, `"bearer"`, or `"none"`).
@@ -318,7 +318,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### Prompts
 
-Prompt keywords let you inject commands to petsitter itself inline in your message using the format `(<keyword>: <request>)`. The framework scans for registered keywords, strips the matching pattern before the model sees it, and routes the request to the appropriate handler.
+Prompt keywords let you inject commands to harnesspatch itself inline in your message using the format `(<keyword>: <request>)`. The framework scans for registered keywords, strips the matching pattern before the model sees it, and routes the request to the appropriate handler.
 
 The syntax is forgiving - a registered keyword can be triggered any of these ways:
 
@@ -327,7 +327,7 @@ The syntax is forgiving - a registered keyword can be triggered any of these way
 - `(swapharness:)` or `(swapharness)` - empty request (e.g. list the harness tree)
 - just `swapharness` - a bare keyword alone in a message means an empty request
 
-This is separate from trick [keyword activation](#keyword-activated) - keywords activate or deactivate tricks for the current request, while **prompt keywords** are commands to petsitter that bypass the model entirely.
+This is separate from trick [keyword activation](#keyword-activated) - keywords activate or deactivate tricks for the current request, while **prompt keywords** are commands to harnesspatch that bypass the model entirely.
 
 ### How to register a prompt keyword
 
@@ -393,7 +393,7 @@ The method receives the text after `mycommand: ` and can return:
 Enforces valid JSON output by adding formatting instructions to the system prompt, stripping markdown code blocks, and retrying with feedback if the response isn't valid JSON.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/json_mode.py
+./harnesspatch -u http://localhost:11434 -t tricks/json_mode.py
 ```
 
 ### Code Validator
@@ -403,7 +403,7 @@ Enforces valid JSON output by adding formatting instructions to the system promp
 After the model proposes a code change, asks it to describe what the change does, compares the description against the original user request, and retries with feedback if they don't match.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/code_validator.py
+./harnesspatch -u http://localhost:11434 -t tricks/code_validator.py
 ```
 
 ### Tool Calling
@@ -413,7 +413,7 @@ After the model proposes a code change, asks it to describe what the change does
 Enables tool calling for models without native support by injecting tool definitions into the prompt, parsing JSONRPC-style tool call responses, and converting them to OpenAI `tool_calls` format.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/tool_call.py
+./harnesspatch -u http://localhost:11434 -t tricks/tool_call.py
 ```
 
 ### Conversational Tool
@@ -430,7 +430,7 @@ A conversational approach to tool calling that uses the ANDYBOT persona instead 
 This works well with small models (3B and under) and older models that struggle with reliable JSON output or native `tool_calls`. The conversational flow lets them express intent naturally instead of wrestling with syntax. It also supports inline arguments (`DEAR ANDYBOT, GET_WEATHER location=Paris`), optional parameters, and "I am confused"/"skip" recovery. The persona is only injected when the request actually carries `tools`.
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/conversational_tool.py -t tricks/json_mode.py
+harnesspatch -u http://localhost:11434 -t tricks/conversational_tool.py -t tricks/json_mode.py
 ```
 
 ### MCP Tools
@@ -443,10 +443,10 @@ Default path: `~/.config/petsitter/mcp.json`. Use the `mcp` prompt keyword to sw
 
 ```bash
 # Default path
-petsitter -u http://localhost:11434 -t tricks/mcp_tools.py
+harnesspatch -u http://localhost:11434 -t tricks/mcp_tools.py
 
 # With a custom mcp.json
-petsitter -u http://localhost:11434 -t tricks/mcp_tools.py
+harnesspatch -u http://localhost:11434 -t tricks/mcp_tools.py
 # Then: (mcp: /path/to/my-tools.json)
 ```
 
@@ -476,7 +476,7 @@ The `mcp.json` format follows the [MCP spec](https://modelcontextprotocol.io):
 
 A trick has full control of the request lifecycle - it can call any number of models, not just the one the user pointed at. This lets you decompose a problem into subtasks and route each one to the model best suited for it.
 
-Petsitter supports this through **model configs** - JSON files that map role names to `{url, model, key}` objects. Tricks declare what roles they need; if a key is missing, petsitter prints a helpful error.
+HarnessPatch supports this through **model configs** - JSON files that map role names to `{url, model, key}` objects. Tricks declare what roles they need; if a key is missing, harnesspatch prints a helpful error.
 
 The `model` and `key` fields can be a string or boolean `false` - `false` means passthrough (don't set the field in the upstream request). This is distinct from `""` which clears the value.
 
@@ -510,7 +510,7 @@ ollama pull LFM2.5-230M       # tool-calling (tiny, fast)
 ollama pull Qwen3.5-2B        # response generation
 
 # Each model sees a context optimized for its role
-./petsitter -mc examples/modelset.json \
+./harnesspatch -mc examples/modelset.json \
             -t tricks/kennel.py
 ```
 
@@ -537,7 +537,7 @@ Pipeline per round:
 
 ```bash
 # Needs a modelset with "default" and "consultant" keys
-petsitter -mc modelset.json -t tricks/multiconsult.py
+harnesspatch -mc modelset.json -t tricks/multiconsult.py
 ```
 
 Example `modelset.json`:
@@ -565,7 +565,7 @@ Detects and pseudonymizes sensitive information before it reaches the model, the
 - **Bidirectional vault** - consistent pseudonyms across the session (same secret → same substitute) with automatic restoration in both natural-language responses and tool call arguments
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/secrets_protector.py
+./harnesspatch -u http://localhost:11434 -t tricks/secrets_protector.py
 ```
 
 ### Swap Harness
@@ -578,7 +578,7 @@ Use the `swapharness` prompt keyword to navigate the directory tree and select a
 
 ```bash
 # Install (clone the repo) first
-petsitter -t swapharness:install
+harnesspatch -t swapharness:install
 ```
 
 Once installed, include `(swapharness: path)` in any user message to browse or select a harness:
@@ -600,22 +600,22 @@ The selected system prompt is prepended to every subsequent request. Run `(swaph
 
 ```bash
 # All lifecycle hooks available via trickname:function
-petsitter -t swapharness:install    # clone the repo
-petsitter -t swapharness:uninstall  # remove the repo
-petsitter -t swapharness:startup    # init per-session state
-petsitter -t swapharness:shutdown   # cleanup session
+harnesspatch -t swapharness:install    # clone the repo
+harnesspatch -t swapharness:uninstall  # remove the repo
+harnesspatch -t swapharness:startup    # init per-session state
+harnesspatch -t swapharness:shutdown   # cleanup session
 ```
 
 ### Self-Improver
 
 [tricks/self_improver.py](tricks/self_improver.py)
 
-Watches for the prompt keyword `petsitter` in your messages. When it sees `(petsitter: <request>)`, it strips the tag and spawns an agent loop with the default model. The agent has tools to add, modify, and list trick files - it reads instructions from `.agents/skills/self-improver/SKILL.md` to understand the petsitter trick API and conventions.
+Watches for the prompt keyword `petsitter` in your messages. When it sees `(petsitter: <request>)`, it strips the tag and spawns an agent loop with the default model. The agent has tools to add, modify, and list trick files - it reads instructions from `.agents/skills/self-improver/SKILL.md` to understand the harnesspatch trick API and conventions.
 
 This is a reference implementation for the **prompt keywords** pattern (see below).
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/self_improver.py
+harnesspatch -u http://localhost:11434 -t tricks/self_improver.py
 ```
 
 Example usage:
@@ -623,7 +623,7 @@ Example usage:
 User: (petsitter: add a trick that logs every request to a file)
 Model: Creates tricks/request_logger.py and explains how to load it
 User: explain the CAP theorem (petsitter: add a thinking mode)
-Model: Explains CAP theorem (tag stripped, petsitter handled separately)
+Model: Explains CAP theorem (tag stripped, harnesspatch handled separately)
 ```
 
 ### Export It
@@ -635,7 +635,7 @@ Exports the conversation history as an [llcat](https://github.com/day50-dev/llca
 Use the `exportit` prompt keyword in any message to trigger the export:
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/exportit.py
+harnesspatch -u http://localhost:11434 -t tricks/exportit.py
 ```
 
 ```
@@ -665,7 +665,7 @@ Tool calls, reasoning (chain-of-thought), and tool results are all preserved in 
 
 ## Tricksets
 
-A trickset bundles a group of tricks with routing filters. When a request comes in, petsitter matches the `X-Title` header and `model` field against each loaded trickset's filters, then runs only the tricks from matching sets.
+A trickset bundles a group of tricks with routing filters. When a request comes in, harnesspatch matches the `X-Title` header and `model` field against each loaded trickset's filters, then runs only the tricks from matching sets.
 
 Tricksets live as JSON files in the `tricksets/` directory:
 
@@ -698,7 +698,7 @@ The Models tab in the dashboard lets you configure model overrides per-trickset:
 
 ```bash
 # Load a trickset at startup (can be combined with -t)
-petsitter -u http://localhost:11434 \
+harnesspatch -u http://localhost:11434 \
           -tc tricksets/opencode.json \
           -t tricks/json_mode.py
 ```
@@ -740,7 +740,7 @@ curl -X POST http://localhost:8080/api/tricksets/unload \
 
 The default catch-all trickset matches `{"X-Title": "*", "Model": "*"}` so `--trick` trick works the same as before.
 
-The `schema` field in a trickset JSON file records the petsitter version that wrote it. This tells tools how to interpret the file without needing an external lookup table.
+The `schema` field in a trickset JSON file records the harnesspatch version that wrote it. This tells tools how to interpret the file without needing an external lookup table.
 
 ### Logging
 
@@ -763,14 +763,14 @@ Lifecycle events (install / uninstall / startup / shutdown) are written to the o
 
 ## Agents
 
-Petsitter has a one-click setup wizard for routing popular coding tools through the proxy. When you click **Set up** on an agent card in the Agents tab, petsitter:
+HarnessPatch has a one-click setup wizard for routing popular coding tools through the proxy. When you click **Set up** on an agent card in the Agents tab, harnesspatch:
 
 1. Detects your credentials (API keys, config files)
 2. Creates a trickset with the right tricks for that tool
 3. Patches the tool's config file to point at `http://localhost:8080`
 4. Saves the original config so it can be restored on shutdown
 
-The **exit button** in the top-right restores every tool's original configuration and shuts petsitter down.
+The **exit button** in the top-right restores every tool's original configuration and shuts harnesspatch down.
 
 ### Available agents
 
@@ -827,7 +827,7 @@ A model config JSON file lets you run multi-model tricks like [Kennel](#kennel) 
 }
 ```
 
-The `"default"` key sets the primary model (equivalent to `-u`/`--url` + `-m`/`--model`). Tricks declare what keys they need - for example, KennelTrick requires `["default", "thinker", "toolcall"]`. If a key is missing, petsitter prints a helpful error with the expected format.
+The `"default"` key sets the primary model (equivalent to `-u`/`--url` + `-m`/`--model`). Tricks declare what keys they need - for example, KennelTrick requires `["default", "thinker", "toolcall"]`. If a key is missing, harnesspatch prints a helpful error with the expected format.
 
 The `model` and `key` fields accept:
 - A string - use as the model name / API key in upstream requests.
@@ -836,7 +836,7 @@ The `model` and `key` fields accept:
 
 ```bash
 # Use a model config instead of -u / -m
-petsitter -mc modelset-example.json -t tricks/kennel.py -l localhost:8080
+harnesspatch -mc modelset-example.json -t tricks/kennel.py -l localhost:8080
 ```
 
 If `-u`/`--url` is also given, it overrides the `"default"` from the model config.
@@ -866,7 +866,7 @@ trick = CodeValidatorTrick(max_attempts=5)
 
 ### Tool calls are client-driven
 
-When a trick produces `tool_calls` in the response, petsitter returns them to your application. It does **not** execute the tool or re-invoke the model with the result - that's the client's job. If the client sends back a `tool` role message with the result, it enters the pipeline fresh on the next request.
+When a trick produces `tool_calls` in the response, harnesspatch returns them to your application. It does **not** execute the tool or re-invoke the model with the result - that's the client's job. If the client sends back a `tool` role message with the result, it enters the pipeline fresh on the next request.
 
 ### Kennel sub-model failures
 
@@ -874,7 +874,7 @@ If a sub-model call in Kennel fails (e.g., the thinker model is unreachable), th
 
 ## API Endpoints
 
-Petsitter exposes OpenAI-compatible endpoints plus management endpoints:
+HarnessPatch exposes OpenAI-compatible endpoints plus management endpoints:
 
 **Proxy:**
 - `POST /v1/chat/completions` - Chat completions (proxied + transformed)

@@ -643,7 +643,7 @@ def _get_version() -> str:
     except Exception:
         pass
     try:
-        return _pkg_version("petsitter")
+        return _pkg_version("harnesspatch")
     except PackageNotFoundError:
         return "0.0.0"
 

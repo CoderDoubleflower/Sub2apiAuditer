@@ -1,5 +1,5 @@
 [project]
-name = "petsitter"
+name = "harnesspatch"
 version = "0.7.5"
 description = "OpenAI-compatible proxy that adds functionality to models through tricks"
 readme = "README.md"
@@ -12,6 +12,8 @@ dependencies = [
 ]
 
 [project.scripts]
+harnesspatch = "src.server:cli"
+hp = "src.server:cli"
 petsitter = "src.server:cli"
 
 [project.optional-dependencies]

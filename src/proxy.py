@@ -31,7 +31,7 @@ from src.trickset import Trickset
 
 logger = logging.getLogger("petsitter")
 
-CONFIG_MAGIC = "__petsitter_config__"
+CONFIG_MAGIC = "__hp_config__"
 
 
 class ProxyHandler:
