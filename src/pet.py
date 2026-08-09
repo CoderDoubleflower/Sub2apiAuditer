@@ -413,6 +413,15 @@ class _PetGroup(click.Group):
         ("System", ["status", "agents"]),
     ]
 
+    EXAMPLES = (
+        "pet ls                            # list all tricksets",
+        "pet show opencode                 # full detail for one trickset",
+        "pet new mykit -t json_mode -t kennel",
+        "pet add mykit kennel              # runs the trick's install hook",
+        "pet enable mykit kennel           # activate a trick",
+        "pet model default http://localhost:11434 --model gemma4",
+    )
+
     def format_commands(self, ctx, formatter) -> None:
         rows: dict[str, list[tuple[str, str]]] = {title: [] for title, _ in self.COMMAND_SECTIONS}
         for name in self.list_commands(ctx):
@@ -428,6 +437,16 @@ class _PetGroup(click.Group):
                 continue
             with formatter.section(title):
                 formatter.write_dl(section_rows)
+
+    def format_help_text(self, ctx, formatter) -> None:
+        formatter.write_paragraph()
+        formatter.write_text(self.help)
+        formatter.write_paragraph()
+        formatter.write_heading("Examples")
+        with formatter.indentation():
+            pad = " " * formatter.current_indent
+            for line in self.EXAMPLES:
+                formatter.write(pad + line + "\n")
 
 
 @click.group(cls=_PetGroup)
