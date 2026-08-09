@@ -15,6 +15,7 @@ dependencies = [
 harnesspatch = "src.server:cli"
 hp = "src.server:cli"
 petsitter = "src.server:cli"
+pet = "src.pet:cli"
 
 [project.optional-dependencies]
 test = [

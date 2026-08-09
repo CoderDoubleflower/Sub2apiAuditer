@@ -610,7 +610,7 @@ harnesspatch -t swapharness:shutdown   # cleanup session
 
 [tricks/self_improver.py](tricks/self_improver.py)
 
-Watches for the prompt keyword `petsitter` in your messages. When it sees `(petsitter: <request>)`, it strips the tag and spawns an agent loop with the default model. The agent has tools to add, modify, and list trick files - it reads instructions from `.agents/skills/self-improver/SKILL.md` to understand the harnesspatch trick API and conventions.
+Watches for the prompt keyword `hp` in your messages. When it sees `(hp: <request>)`, it strips the tag and spawns an agent loop with the default model. The agent has tools to add, modify, and list trick files - it reads instructions from `.agents/skills/self-improver/SKILL.md` to understand the harnesspatch trick API and conventions.
 
 This is a reference implementation for the **prompt keywords** pattern (see below).
 
@@ -620,10 +620,10 @@ harnesspatch -u http://localhost:11434 -t tricks/self_improver.py
 
 Example usage:
 ```
-User: (petsitter: add a trick that logs every request to a file)
+User: (hp: add a trick that logs every request to a file)
 Model: Creates tricks/request_logger.py and explains how to load it
-User: explain the CAP theorem (petsitter: add a thinking mode)
-Model: Explains CAP theorem (tag stripped, harnesspatch handled separately)
+User: explain the CAP theorem (hp: add a thinking mode)
+Model: Explains CAP theorem (tag stripped, hp handled separately)
 ```
 
 ### Export It
