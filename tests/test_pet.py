@@ -47,6 +47,16 @@ class TestBasics:
         assert "demo" in result.output
         assert "JSON Mode" in result.output
 
+    def test_show_without_name_is_table(self, runner, pet_env):
+        _invoke(runner, pet_env, "new", "demo", "--x-title", "demo*", "-t", "json_mode")
+        _invoke(runner, pet_env, "new", "other", "-t", "kennel")
+        result = _invoke(runner, pet_env, "show")
+        assert "NAME" in result.output
+        assert "FILTERS" in result.output
+        assert "demo" in result.output
+        assert "demo*" in result.output
+        assert "other" in result.output
+
     def test_default_filter_when_no_title(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())

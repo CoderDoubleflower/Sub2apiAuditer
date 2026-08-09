@@ -275,6 +275,23 @@ def _print_trickset_list(ts: Trickset, json_out: bool = False) -> None:
         click.echo(f"  {mark:<4} {label:<24} {path}{suffix}")
 
 
+def _print_trickset_table(json_out: bool = False) -> None:
+    files = _list_ts_files()
+    if json_out:
+        click.echo(json.dumps([Trickset.load_from_file(str(f)).to_dict() for f in files], indent=2))
+        return
+    if not files:
+        click.echo("No tricksets yet. Create one with 'pet new <name>' or run 'pet examples'.")
+        return
+    width = max(len(Trickset.load_from_file(str(f)).name) for f in files)
+    width = max(width, len("NAME"))
+    click.echo(f"{'NAME':<{width}}  FILTERS")
+    for f in files:
+        ts = Trickset.load_from_file(str(f))
+        filters = "  ".join(f"{k}={v}" for k, v in ts.filters.items())
+        click.echo(f"{ts.name:<{width}}  {filters}")
+
+
 def _print_trickset_detail(ts: Trickset, json_out: bool = False) -> None:
     if json_out:
         click.echo(json.dumps(ts.to_dict(), indent=2))
@@ -384,7 +401,36 @@ def _install_agent_manager():
 # --------------------------------------------------------------------------
 
 
-@click.group()
+class _PetGroup(click.Group):
+    """Group that lists commands in logical sections."""
+
+    COMMAND_SECTIONS: list[tuple[str, list[str]]] = [
+        ("Tricksets", ["ls", "show", "new", "examples", "rename", "delete"]),
+        ("Tricks", ["tricks", "add", "rm", "enable", "disable", "reorder", "keyword", "config", "param", "filter"]),
+        ("Models", ["models", "model"]),
+        ("Lifecycle", ["install", "uninstall", "lifecycle"]),
+        ("Logging", ["logfile", "loglevel"]),
+        ("System", ["status", "agents"]),
+    ]
+
+    def format_commands(self, ctx, formatter) -> None:
+        rows: dict[str, list[tuple[str, str]]] = {title: [] for title, _ in self.COMMAND_SECTIONS}
+        for name in self.list_commands(ctx):
+            cmd = self.get_command(ctx, name)
+            if cmd is None:
+                continue
+            section = next((t for t, members in self.COMMAND_SECTIONS if name in members), None)
+            if section is None:
+                continue
+            rows[section].append((name, cmd.get_short_help_str(formatter.width - 6)))
+        for title, section_rows in rows.items():
+            if not section_rows:
+                continue
+            with formatter.section(title):
+                formatter.write_dl(section_rows)
+
+
+@click.group(cls=_PetGroup)
 @click.version_option(_version(), prog_name="pet")
 def cli() -> None:
     """Manage petsitter tricksets, tricks, and models from the command line.
@@ -413,10 +459,13 @@ def ls_cmd(name: str | None, json_out: bool) -> None:
 
 
 @cli.command("show")
-@click.argument("name")
+@click.argument("name", required=False)
 @click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
-def show_cmd(name: str, json_out: bool) -> None:
-    """Show full detail for a trickset."""
+def show_cmd(name: str | None, json_out: bool) -> None:
+    """Show full detail for a trickset (table of tricksets if no name)."""
+    if name is None:
+        _print_trickset_table(json_out=json_out)
+        return
     _print_trickset_detail(_load_ts(name), json_out=json_out)
 
 
