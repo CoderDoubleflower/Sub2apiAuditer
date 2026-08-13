@@ -123,6 +123,109 @@ class Trickset:
         handler.setLevel(level)
         return log
 
+    def reread_config(self) -> dict:
+        """Re-apply configuration from the trickset's JSON file in place.
+
+        Applies structural/config changes — filters, parameters, models,
+        logging, and trick membership/enabled/keywords/config — without
+        hot-reloading trick behavior: tricks already loaded keep their
+        runtime state, only their config values are re-applied via
+        ``configure()``. Tricks that are new (or whose file path changed)
+        are instantiated fresh. Returns an ``action`` describing the result:
+
+        - ``"reloaded"`` — config re-applied from the file
+        - ``"kept"``     — no file path, left untouched
+        - ``"removed"``  — file is gone, caller should unload it
+        """
+        if not self.file_path:
+            return {"name": self.name, "action": "kept", "reason": "no file"}
+        p = Path(self.file_path).resolve()
+        if not p.exists():
+            if self.name == "_default":
+                return {"name": self.name, "action": "kept", "reason": "default has no file yet"}
+            return {"name": self.name, "action": "removed", "reason": "file gone"}
+
+        data = json.loads(p.read_text())
+        self.filters = data.get("filters", {"X-Title": "*", "Model": "*"})
+        self.parameters = data.get("parameters", {})
+        self.models = data.get("models", {})
+        self.logfile = data.get("logfile") or _default_logfile(self.name)
+        self.loglevel = (data.get("loglevel") or "INFO").upper()
+
+        desired: list[dict] = []
+        for entry in data.get("tricks", []):
+            if isinstance(entry, str):
+                desired.append({
+                    "id": _new_id(), "file": entry, "enabled": True,
+                    "keyword": None, "config": {},
+                })
+            elif isinstance(entry, dict):
+                desired.append({
+                    "id": entry.get("id") or _new_id(),
+                    "file": entry.get("file", ""),
+                    "enabled": entry.get("enabled", True),
+                    "keyword": entry.get("keyword"),
+                    "config": entry.get("config") or {},
+                })
+
+        existing_idx = {tid: i for i, tid in enumerate(self.trick_ids)}
+        desired_ids = {d["id"] for d in desired}
+        removed_ids = [tid for tid in self.trick_ids if tid not in desired_ids]
+
+        new_tricks: list[Trick] = []
+        new_paths: list[str] = []
+        new_enabled: list[bool] = []
+        new_ids: list[str] = []
+        new_keywords: list[str | None] = []
+        new_configs: dict[str, dict] = dict(self.trick_configs)
+        for tid in removed_ids:
+            new_configs.pop(tid, None)
+
+        for entry in desired:
+            tid = entry["id"]
+            if not entry["file"]:
+                continue
+            idx = existing_idx.get(tid)
+            if idx is not None and idx < len(self.tricks) and self.tricks[idx] is not None:
+                trick = self.tricks[idx]
+                if self.trick_paths[idx] != entry["file"]:
+                    try:
+                        trick = load_trick_from_path(entry["file"])()
+                    except Exception:
+                        logger.exception("trickset '%s': failed to reload trick %s", self.name, entry["file"])
+                        continue
+            else:
+                try:
+                    trick = load_trick_from_path(entry["file"])()
+                except Exception:
+                    logger.exception("trickset '%s': failed to load trick %s", self.name, entry["file"])
+                    continue
+            if entry["config"]:
+                try:
+                    trick.configure(dict(entry["config"]))
+                except Exception:
+                    logger.exception("trickset '%s': failed to apply config to %s", self.name, tid)
+            new_tricks.append(trick)
+            new_paths.append(entry["file"])
+            new_enabled.append(entry["enabled"])
+            new_ids.append(tid)
+            new_keywords.append(entry["keyword"])
+            new_configs[tid] = dict(entry["config"])
+
+        self.tricks = new_tricks
+        self.trick_paths = new_paths
+        self.trick_enabled = new_enabled
+        self.trick_ids = new_ids
+        self.trick_keywords = new_keywords
+        self.trick_configs = new_configs
+        self.get_logger().info("trickset '%s': reread config from %s", self.name, p)
+        return {
+            "name": self.name,
+            "action": "reloaded",
+            "tricks": len(new_tricks),
+            "removed_tricks": len(removed_ids),
+        }
+
     def to_dict(self) -> dict:
         return {
             "name": self.name,

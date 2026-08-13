@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.server import _resolve_trick_path, create_app, cli
 from src.trick import Trick
+from src.trickset import Trickset
 
 
 def create_mock_response(data: dict) -> MagicMock:
@@ -277,6 +278,138 @@ class TestResolveTrickPath:
     def test_non_existent_short_name_returned_as_is(self):
         """Unknown short name returned as-is when file doesn't exist"""
         assert _resolve_trick_path("nope") == "nope"
+
+
+class TestReadConfig:
+    """Tests for the /readconfig endpoint and Trickset.reread_config."""
+
+    @staticmethod
+    def _write_trickset(path, name, filters, tricks=None, loglevel="INFO"):
+        path.write_text(json.dumps({
+            "schema": "0.8.0",
+            "name": name,
+            "filters": filters,
+            "tricks": tricks or [],
+            "parameters": {},
+            "models": {},
+            "logfile": "",
+            "loglevel": loglevel,
+        }) + "\n")
+
+    @staticmethod
+    def _monkeypatch_paths(monkeypatch, tmp_path):
+        from src import trick as trick_mod
+        trick_mod._modelset.clear()
+        monkeypatch.setattr("src.server.CONFIG_DIR", tmp_path)
+        monkeypatch.setattr("src.server.CONFIG_PATH", tmp_path / "config.json")
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path / "tricksets")
+        (tmp_path / "tricksets").mkdir(parents=True, exist_ok=True)
+
+    @pytest.mark.asyncio
+    async def test_reread_config_preserves_loaded_trick_objects(self, tmp_path):
+        """reread_config applies config in place without re-instantiating tricks."""
+        p = tmp_path / "opencode.json"
+        self._write_trickset(p, "opencode", {"X-Title": "opencode", "Model": "*"},
+                             [{"id": "abc", "file": "tricks/json_mode.py", "enabled": True, "keyword": None}])
+        ts = Trickset.load_from_file(str(p))
+        orig = ts.tricks[0]
+        orig.max_attempts = 9
+
+        self._write_trickset(p, "opencode", {"X-Title": "opencode2", "Model": "foo"},
+                             [{"id": "abc", "file": "tricks/json_mode.py", "enabled": False,
+                               "keyword": "om", "config": {"max_attempts": 5}}],
+                             loglevel="DEBUG")
+        res = ts.reread_config()
+
+        assert res["action"] == "reloaded"
+        assert ts.filters == {"X-Title": "opencode2", "Model": "foo"}
+        assert ts.loglevel == "DEBUG"
+        assert ts.tricks[0] is orig
+        assert ts.tricks[0].max_attempts == 5
+        assert ts.trick_enabled == [False]
+        assert ts.trick_keywords == ["om"]
+
+    @pytest.mark.asyncio
+    async def test_reread_config_keeps_default_without_file(self, tmp_path):
+        """An in-memory _default with no file on disk is kept, not removed."""
+        ts = Trickset("_default", "0.8.0", {"X-Title": "*", "Model": "*"}, [],
+                      file_path=str(tmp_path / "tricksets" / "_default.json"))
+        assert ts.reread_config()["action"] == "kept"
+
+    @pytest.mark.asyncio
+    async def test_readconfig_reroutes_model(self, monkeypatch, tmp_path):
+        """Changing model routing in config.json takes effect after /readconfig."""
+        self._monkeypatch_paths(monkeypatch, tmp_path)
+        app = create_app(model_url="http://old:11434", model_name="old-model", api_key="", trick_paths=[])
+        (tmp_path / "config.json").write_text(json.dumps({
+            "model_url": "http://new:11434",
+            "model_name": "new-model",
+            "modelset": {"default": {"url": "http://new:11434", "model": "new-model", "key": ""}},
+        }) + "\n")
+
+        from httpx import AsyncClient, ASGITransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/readconfig")
+            assert r.status_code == 200
+            assert r.json()["models"]["model_url"] == "http://new:11434"
+
+        mock_response = create_mock_response({"choices": [{"message": {"role": "assistant", "content": "Hi"}}]})
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "Hi"}]})
+        assert mock_client.post.call_args[0][0] == "http://new:11434/v1/chat/completions"
+
+    @pytest.mark.asyncio
+    async def test_readconfig_reloads_filters_and_adds_new_trickset(self, monkeypatch, tmp_path):
+        """Filter edits are re-applied and new on-disk tricksets get loaded."""
+        self._monkeypatch_paths(monkeypatch, tmp_path)
+        ts_path = tmp_path / "tricksets" / "opencode.json"
+        self._write_trickset(ts_path, "opencode", {"X-Title": "opencode", "Model": "*"},
+                             [{"id": "abc", "file": "tricks/json_mode.py", "enabled": True, "keyword": None}])
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[],
+                         trickset_paths=[str(ts_path)])
+
+        self._write_trickset(ts_path, "opencode", {"X-Title": "opencode2", "Model": "opencode2"},
+                             [{"id": "abc", "file": "tricks/json_mode.py", "enabled": True, "keyword": None}])
+        self._write_trickset(tmp_path / "tricksets" / "gemma4.json", "gemma4",
+                             {"X-Title": "gemma4", "Model": "*"})
+
+        from httpx import AsyncClient, ASGITransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/readconfig")
+            assert r.status_code == 200
+            body = r.json()["tricksets"]
+            assert "opencode" in body["reloaded"]
+            assert "gemma4" in body["added"]
+
+            names = [t["name"] for t in (await ac.get("/api/tricksets")).json()]
+            assert "opencode" in names and "gemma4" in names
+            opencode = await ac.get("/api/tricksets/opencode")
+            assert opencode.json()["filters"] == {"X-Title": "opencode2", "Model": "opencode2"}
+
+    @pytest.mark.asyncio
+    async def test_readconfig_unloads_deleted_trickset(self, monkeypatch, tmp_path):
+        """A trickset whose file was deleted is unloaded after /readconfig."""
+        self._monkeypatch_paths(monkeypatch, tmp_path)
+        ts_path = tmp_path / "tricksets" / "opencode.json"
+        self._write_trickset(ts_path, "opencode", {"X-Title": "opencode", "Model": "*"},
+                             [{"id": "abc", "file": "tricks/json_mode.py", "enabled": True, "keyword": None}])
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[],
+                         trickset_paths=[str(ts_path)])
+
+        ts_path.unlink()
+
+        from httpx import AsyncClient, ASGITransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/readconfig")
+            assert r.status_code == 200
+            assert "opencode" in r.json()["tricksets"]["removed"]
+            names = [t["name"] for t in (await ac.get("/api/tricksets")).json()]
+            assert "opencode" not in names
 
 
 class TestLifecycleConvention:

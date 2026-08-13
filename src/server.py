@@ -26,6 +26,7 @@ from src.gui_routes import register_gui_routes
 from src.loader import load_trick_from_path, load_tricks
 from src.proxy import ProxyHandler
 from src.trick import (
+    configure,
     configure_modelset,
 )
 from src.trickset import SCHEMA, Trickset, _default_logfile, _new_id
@@ -159,6 +160,70 @@ def load_config() -> dict:
 def save_config(config: dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(config, indent=2) + "\n")
+
+
+def reload_config(handler: "ProxyHandler") -> dict:
+    """Re-read the config files on disk and apply them top-down.
+
+    Re-applies the global model routing from ``config.json`` and reconciles
+    each loaded trickset against its JSON file via ``Trickset.reread_config``.
+    Tricks already loaded keep their runtime state (no behavior hot-reload);
+    only configuration changes take effect. Tricksets on disk that are not
+    loaded are loaded fresh; loaded tricksets whose files are gone are
+    unloaded. Returns a summary of what changed.
+    """
+    from src.trick import _modelset
+
+    cfg = load_config()
+    modelset_data = cfg.get("modelset") or {}
+    if isinstance(modelset_data, dict):
+        configure_modelset(modelset_data)
+
+    model_url = cfg.get("model_url", "")
+    model_name = cfg.get("model_name", "")
+    api_key = cfg.get("api_key", "")
+    if isinstance(modelset_data, dict) and isinstance(modelset_data.get("default"), dict):
+        dflt = modelset_data["default"]
+        if dflt.get("url"):
+            model_url = dflt["url"]
+        if isinstance(dflt.get("model"), str) and dflt["model"]:
+            model_name = dflt["model"]
+
+    model_url = model_url.rstrip("/")
+    handler.model_url = model_url
+    handler.model_name = model_name or ""
+    handler.api_key = api_key
+    configure(model_url, model_name or "", api_key)
+
+    summary: dict[str, list[str]] = {"reloaded": [], "added": [], "removed": [], "kept": []}
+    for name, ts in list(handler.tricksets.items()):
+        res = ts.reread_config()
+        action = res["action"]
+        summary.setdefault(action, []).append(name)
+        if action == "removed":
+            del handler.tricksets[name]
+
+    TRICKSETS_DIR.mkdir(parents=True, exist_ok=True)
+    for f in sorted(TRICKSETS_DIR.glob("*.json")):
+        if f.stem in handler.tricksets:
+            continue
+        try:
+            ts = Trickset.load_from_file(str(f))
+        except Exception:
+            logging.getLogger("petsitter").exception("Failed to load trickset %s on reread", f)
+            continue
+        handler.tricksets[ts.name] = ts
+        summary["added"].append(ts.name)
+
+    return {
+        "models": {
+            "model_url": handler.model_url,
+            "model_name": handler.model_name,
+            "api_key_set": bool(handler.api_key),
+            "modelset_keys": sorted(_modelset.keys()),
+        },
+        "tricksets": summary,
+    }
 
 
 def install_examples(force: bool = False) -> list[dict]:
@@ -564,6 +629,16 @@ def create_app(
         results = install_examples(force=force)
         return JSONResponse({"results": results})
     app.add_route("/api/tricksets/install-examples", install_examples_endpoint, methods=["POST"])
+
+    async def readconfig(request: Request) -> Response:
+        """Re-read config files and apply them to the running instance."""
+        try:
+            return JSONResponse(reload_config(handler))
+        except Exception as e:
+            import traceback
+            logging.getLogger("petsitter").error(f"Error in /readconfig: {e}\n{traceback.format_exc()}")
+            return JSONResponse({"error": str(e), "type": "proxy_error"}, status_code=500)
+    app.add_route("/readconfig", readconfig, methods=["POST"])
 
     # ----- agent API endpoints -----
 
