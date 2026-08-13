@@ -23,7 +23,6 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from src.agent_manager import AgentManager
 from src.gui_routes import register_gui_routes
-from src.loader import load_trick_from_path, load_tricks
 from src.proxy import ProxyHandler
 from src.trick import (
     configure,
@@ -131,21 +130,6 @@ async def _generic_proxy(target: str, request: Request) -> Response:
         status_code=upstream_resp.status_code,
         headers={"content-type": upstream_resp.headers.get("content-type", "application/json")},
     )
-
-
-def _resolve_trick_path(name: str) -> str:
-    """Resolve a trick name to a .py file path.
-
-    ``swapharness`` → ``tricks/swapharness.py``
-    ``tricks/json_mode.py`` → stays as-is.
-    """
-    if name.endswith(".py"):
-        return name
-    if "/" not in name:
-        candidate = f"tricks/{name}.py"
-        if Path(candidate).exists():
-            return candidate
-    return name
 
 
 def load_config() -> dict:
@@ -723,82 +707,18 @@ def _get_version() -> str:
         return "0.0.0"
 
 
-class _PetSitterCLI(click.Command):
-    """Custom CLI that intercepts --trick/-t with no value to list tricks."""
-
-    def parse_args(self, ctx, args):
-        for i, arg in enumerate(args):
-            if arg in ("-t", "--trick"):
-                if i + 1 >= len(args) or args[i + 1].startswith("-"):
-                    _print_trick_table()
-                    ctx.exit(0)
-        return super().parse_args(ctx, args)
-
-
-def _print_trick_table():
-    """Print a table of available tricks:  Name | File | Description."""
-    from src.gui_routes import _introspect_trick_file
-
-    tricks_dir = Path("tricks")
-    if not tricks_dir.exists():
-        click.echo("No tricks directory found.")
-        return
-
-    rows = []
-    for f in sorted(tricks_dir.glob("*.py")):
-        if f.name == "__init__.py":
-            continue
-        info = _introspect_trick_file(f)
-        rows.append((info["display_name"] or f.stem, str(f), info["brief"] or ""))
-
-    if rows:
-        name_w = max(len(r[0]) for r in rows) + 2
-        path_w = max(len(r[1]) for r in rows) + 2
-        for name, path, brief in rows:
-            click.echo(f"{name:<{name_w}}| {path:<{path_w}}| {brief}")
-
-
-@click.command(cls=_PetSitterCLI)
+@click.command()
 @click.version_option(
     _get_version(),
     "-v", "--version",
     prog_name="petsitter",
 )
 @click.option(
-    "-u", "--url",
-    "model_url",
+    "-c", "--config",
+    "config_arg",
     default=None,
-    help="Base URL of the upstream model (e.g., http://localhost:11434)",
-)
-@click.option(
-    "-m", "--model",
-    "model_name",
-    default=None,
-    help="Model name to use (optional for some backends like vllm, sglang)",
-)
-@click.option(
-    "-k", "--key",
-    "api_key",
-    default="",
-    help="API key for upstream (if required)",
-)
-@click.option(
-    "-t", "--trick",
-    "tricks",
-    multiple=True,
-    help="Path to a trick module, or --trick alone to list available tricks",
-)
-@click.option(
-    "-tc", "--trick-config",
-    "tricksets",
-    multiple=True,
-    help="Path to a trickset JSON file (can be specified multiple times)",
-)
-@click.option(
-    "-mc", "--model-config",
-    "model_config",
-    default=None,
-    help="Path to a model config JSON file (MAS URIs for multi-model tricks)",
+    help="Path to a config file (e.g., another_petsitter_config.conf.json) or config "
+         "directory (default: $PET_CONFIG_DIR or ~/.config/petsitter)",
 )
 @click.option(
     "-l", "--listen",
@@ -806,102 +726,57 @@ def _print_trick_table():
     default="localhost:8080",
     help="Host:port to listen on (default: localhost:8080)",
 )
-def cli(
-    model_url: str | None,
-    model_name: str | None,
-    api_key: str,
-    tricks: tuple[str, ...],
-    tricksets: tuple[str, ...],
-    model_config: str | None,
-    listen_on: str,
-) -> None:
+def cli(config_arg: str | None, listen_on: str) -> None:
     """Petsitter - OpenAI-compatible proxy with tricks.
 
     https://github.com/day50-dev/Petsitter
 
-    Example:
+    Reads all settings from the config file at CONFIG_PATH (default
+    ~/.config/petsitter/config.json, or the value of $PET_CONFIG_DIR).
+    Point -c at a config file or directory to run from a different base.
 
     \b
-        petsitter -u http://localhost:11434 \\
-                  -m llama3:8b \\
-                  -t tricks/tool_call.py \\
-                  -tc tricksets/gemma4.json \\
-                  -l localhost:8080
+        petsitter -l localhost:8080
 
     \b
-        petsitter -mc modelset-example.json \\
-                  -t tricks/kennel.py \\
-                  -l localhost:8080
+        petsitter -c another_petsitter_config.conf.json -l localhost:8080
     """
-    # Load persistent config
+    global CONFIG_DIR, CONFIG_PATH, TRICKSETS_DIR, BACKUPS_DIR
+
+    if config_arg:
+        p = Path(config_arg).expanduser().resolve()
+        if p.suffix:
+            CONFIG_DIR = p.parent
+            CONFIG_PATH = p
+        else:
+            CONFIG_DIR = p
+            CONFIG_PATH = p / "config.json"
+    else:
+        base = Path(os.environ.get("PET_CONFIG_DIR", str(Path.home() / ".config" / "petsitter"))).expanduser()
+        CONFIG_DIR = base
+        CONFIG_PATH = base / "config.json"
+    TRICKSETS_DIR = CONFIG_DIR / "tricksets"
+    BACKUPS_DIR = CONFIG_DIR / "backups"
+
     cfg = load_config()
     cfg_tricksets = list(cfg.get("tricksets", []))
-    cfg_modelset = cfg.get("modelset")
 
-    # CLI args override persistent config
-    if model_url is None:
-        model_url = cfg.get("model_url", "")
-    if model_name is None:
-        model_name = cfg.get("model_name", "")
-    if not api_key:
-        api_key = cfg.get("api_key", "")
+    modelset_data = cfg.get("modelset") or {}
+    if not isinstance(modelset_data, dict):
+        modelset_data = {}
 
-    if model_config:
-        mc_path = Path(model_config).resolve()
-        if not mc_path.exists():
-            click.echo(f"Error: model config file not found: {model_config}", err=True)
-            raise SystemExit(1)
-        try:
-            modelset_data = json.loads(mc_path.read_text())
-        except json.JSONDecodeError as e:
-            click.echo(f"Error: invalid JSON in model config file: {e}", err=True)
-            raise SystemExit(1)
-    else:
-        modelset_data = cfg_modelset
+    configure_modelset(modelset_data)
 
-    if modelset_data:
-        configure_modelset(modelset_data)
-        if "default" in modelset_data:
-            dflt = modelset_data["default"]
-            if isinstance(dflt, dict):
-                inferred_url = dflt.get("url", "")
-                if inferred_url:
-                    model_url = inferred_url
-                inferred_model = dflt.get("model")
-                if isinstance(inferred_model, str) and inferred_model:
-                    model_name = inferred_model
-
-    # Process -t args: trickname:function runs a lifecycle hook,
-    # trickname or path loads the trick into the default trickset.
-    lifecycle_tricks: list[str] = []
-    load_tricks_list: list[str] = []
-    for arg in (list(tricks) if tricks else []):
-        if ":" in arg and not arg.endswith(".py"):
-            name, _, func = arg.partition(":")
-            path = _resolve_trick_path(name)
-            lifecycle_tricks.append(f"{path}:{func}")
-        else:
-            load_tricks_list.append(_resolve_trick_path(arg) if "/" not in arg else arg)
-    trick_list = list(load_tricks_list)
-    trickset_list = list(tricksets) if tricksets else cfg_tricksets
-
-    # Run lifecycle hooks (install, uninstall, startup, shutdown) on demand
-    for entry in lifecycle_tricks:
-        path, _, func = entry.partition(":")
-        try:
-            cls = load_trick_from_path(path)
-            trick = cls()
-            method = getattr(trick, func, None)
-            if method is None:
-                click.echo(f"Error: trick {path} has no method '{func}'", err=True)
-                continue
-            if asyncio.iscoroutinefunction(method):
-                asyncio.run(method())
-            else:
-                method()
-            click.echo(f"Ran {func}() on {path}")
-        except Exception as e:
-            click.echo(f"Error running {func}() on {path}: {e}", err=True)
+    model_url = cfg.get("model_url", "")
+    model_name = cfg.get("model_name", "")
+    api_key = cfg.get("api_key", "")
+    dflt = modelset_data.get("default")
+    if isinstance(dflt, dict):
+        if dflt.get("url"):
+            model_url = dflt["url"]
+        if isinstance(dflt.get("model"), str) and dflt["model"]:
+            model_name = dflt["model"]
+    model_url = model_url.rstrip("/")
 
     if ":" in listen_on:
         host, port_str = listen_on.rsplit(":", 1)
@@ -914,37 +789,34 @@ def cli(
 
     app = create_app(
         model_url, model_name, api_key,
-        trick_paths=trick_list,
-        trickset_paths=trickset_list,
+        trick_paths=[],
+        trickset_paths=cfg_tricksets,
         modelset_data=modelset_data,
         config_path=str(CONFIG_PATH),
         restore_saved=True,
     )
 
-    # Save config for next run (merging CLI state into persistent config)
-    save_config({
+    # Save config for next run, preserving any keys we don't manage.
+    cfg.update({
         "model_url": model_url,
         "model_name": model_name or "",
         "api_key": api_key,
-        "modelset": modelset_data or {},
-        "tricks": trick_list,
-        "tricksets": trickset_list,
+        "modelset": modelset_data,
+        "tricksets": cfg_tricksets,
     })
+    save_config(cfg)
 
     if not model_url:
         click.echo("Starting petsitter dashboard with no upstream model configured.")
-        click.echo("Configure a model via the dashboard at http://" + listen_on)
+        click.echo(f"Configure a model via the dashboard at http://{listen_on} or 'pet model default ...'")
     else:
         click.echo(f"Starting petsitter on {host}:{port}")
         click.echo(f"Upstream: {model_url}")
     if model_name:
         click.echo(f"Model: {model_name}")
-    if trick_list:
-        click.echo(f"Tricks: {', '.join(trick_list)}")
-    if trickset_list:
-        click.echo(f"Trick configs: {', '.join(trickset_list)}")
-    if model_config:
-        click.echo(f"Model config: {model_config}")
+    if cfg_tricksets:
+        click.echo(f"Trick configs: {', '.join(cfg_tricksets)}")
+    click.echo(f"Config: {CONFIG_PATH}")
 
     log_level = os.getenv("LOGLEVEL", "INFO").upper()
     logging.basicConfig(

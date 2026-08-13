@@ -5,7 +5,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.server import _resolve_trick_path, create_app, cli
+from src.server import create_app, cli
 from src.trick import Trick
 from src.trickset import Trickset
 
@@ -260,26 +260,6 @@ class TestServerEndpoints:
                 assert "data" in response.json()
 
 
-class TestResolveTrickPath:
-    """Tests for _resolve_trick_path helper."""
-
-    def test_resolves_short_name(self):
-        """swapharness -> tricks/swapharness.py"""
-        assert _resolve_trick_path("json_mode") == "tricks/json_mode.py"
-
-    def test_preserves_full_path(self):
-        """tricks/json_mode.py stays as-is"""
-        assert _resolve_trick_path("tricks/json_mode.py") == "tricks/json_mode.py"
-
-    def test_preserves_path_with_slash(self):
-        """Tricks outside tricks/ dir stay as-is"""
-        assert _resolve_trick_path("other/trick.py") == "other/trick.py"
-
-    def test_non_existent_short_name_returned_as_is(self):
-        """Unknown short name returned as-is when file doesn't exist"""
-        assert _resolve_trick_path("nope") == "nope"
-
-
 class TestReadConfig:
     """Tests for the /readconfig endpoint and Trickset.reread_config."""
 
@@ -412,128 +392,84 @@ class TestReadConfig:
             assert "opencode" not in names
 
 
-class TestLifecycleConvention:
-    """Tests for the trickname:function CLI convention."""
-
-    def test_lifecycle_install_runs_hook(self):
-        """trickname:install runs the hook and prints confirmation."""
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-t", "tricks/json_mode.py:startup",
-                    ],
-                )
-                assert "Ran startup() on tricks/json_mode.py" in result.output
-
-    def test_regular_trick_still_loads(self):
-        """Regular -t trick.py still loads into trickset."""
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-t", "tricks/json_mode.py",
-                    ],
-                )
-                assert mock_create.called
-                call_args = mock_create.call_args
-                assert "tricks/json_mode.py" in call_args[1]["trick_paths"]
-
-    def test_unknown_method_prints_error(self):
-        """trickname:unknown prints error message."""
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-t", "json_mode:nonexistent",
-                    ],
-                )
-                assert "has no method 'nonexistent'" in result.output
-
-
 class TestCLI:
-    """Tests for CLI."""
+    """Tests for the petsitter CLI (config flag + listen parsing)."""
 
-    def test_cli_parse_host_port(self):
-        """CLI correctly parses host:port."""
+    @pytest.fixture(autouse=True)
+    def _restore_paths(self):
+        """cli() reassigns server path globals; restore them after each test."""
+        from src import server
+
+        orig = (server.CONFIG_DIR, server.CONFIG_PATH, server.TRICKSETS_DIR, server.BACKUPS_DIR)
+        yield
+        server.CONFIG_DIR, server.CONFIG_PATH, server.TRICKSETS_DIR, server.BACKUPS_DIR = orig
+
+    def _invoke(self, *args):
         from click.testing import CliRunner
 
         runner = CliRunner()
+        with patch("src.server.uvicorn.run") as mock_run, \
+             patch("src.server.create_app") as mock_create:
+            mock_create.return_value = None
+            result = runner.invoke(cli, list(args))
+        return result, mock_run, mock_create
 
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-l", "0.0.0.0:9000",
-                    ],
-                )
-                assert mock_run.called
-                call_args = mock_run.call_args
-                assert call_args[1]["host"] == "0.0.0.0"
-                assert call_args[1]["port"] == 9000
+    def test_cli_parse_host_port(self, tmp_path):
+        """-c points at a config dir and -l parses host:port."""
+        result, mock_run, _ = self._invoke(
+            "-c", str(tmp_path / "configdir"),
+            "-l", "0.0.0.0:9000",
+        )
+        assert result.exit_code == 0
+        call_args = mock_run.call_args
+        assert call_args[1]["host"] == "0.0.0.0"
+        assert call_args[1]["port"] == 9000
 
-    def test_cli_default_port(self):
+    def test_cli_default_port(self, tmp_path):
         """CLI uses default port 8080 if not specified."""
-        from click.testing import CliRunner
+        result, mock_run, _ = self._invoke(
+            "-c", str(tmp_path / "configdir"),
+            "-l", "localhost",
+        )
+        assert result.exit_code == 0
+        call_args = mock_run.call_args
+        assert call_args[1]["port"] == 8080
 
-        runner = CliRunner()
+    def test_cli_config_directory_sets_paths(self, tmp_path):
+        """A directory arg makes CONFIG_PATH <dir>/config.json and config_path=<dir>/config.json."""
+        cfg_dir = tmp_path / "custom"
+        result, _, mock_create = self._invoke("-c", str(cfg_dir))
+        assert result.exit_code == 0
+        from src import server
+        assert server.CONFIG_PATH == cfg_dir / "config.json"
+        assert server.TRICKSETS_DIR == cfg_dir / "tricksets"
+        call_args = mock_create.call_args
+        assert call_args[1]["config_path"] == str(cfg_dir / "config.json")
 
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-l", "localhost",
-                    ],
-                )
-                assert mock_run.called
-                call_args = mock_run.call_args
-                assert call_args[1]["port"] == 8080
+    def test_cli_config_file_sets_paths(self, tmp_path):
+        """A file arg is used as-is for CONFIG_PATH; base dir is its parent."""
+        cfg_file = tmp_path / "another_petsitter_config.conf.json"
+        cfg_file.write_text(json.dumps({
+            "model_url": "http://localhost:11434",
+            "model_name": "llama3:8b",
+            "tricksets": ["custom/trickset.json"],
+        }) + "\n")
+        result, _, mock_create = self._invoke("-c", str(cfg_file))
+        assert result.exit_code == 0
+        from src import server
+        assert server.CONFIG_PATH == cfg_file
+        assert server.CONFIG_DIR == tmp_path
+        call_args = mock_create.call_args
+        assert call_args[1]["config_path"] == str(cfg_file)
+        assert call_args[0][0] == "http://localhost:11434"
+        assert call_args[0][1] == "llama3:8b"
+        assert call_args[1]["trickset_paths"] == ["custom/trickset.json"]
 
-    def test_cli_with_tricks(self):
-        """CLI accepts multiple -t options."""
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-
-        with patch("src.server.uvicorn.run") as mock_run:
-            with patch("src.server.create_app") as mock_create:
-                mock_create.return_value = None
-                result = runner.invoke(
-                    cli,
-                    [
-                        "-u", "http://localhost:11434",
-                        "-t", "tricks/json_mode.py",
-                        "-t", "tricks/tool_call.py",
-                    ],
-                )
-                assert mock_create.called
-                call_args = mock_create.call_args
-                assert "tricks/json_mode.py" in call_args[1]["trick_paths"]
-                assert "tricks/tool_call.py" in call_args[1]["trick_paths"]
+    def test_cli_saves_config_back(self, tmp_path):
+        """cli persists resolved settings back to the chosen config file."""
+        cfg_file = tmp_path / "config.json"
+        self._invoke("-c", str(cfg_file))
+        saved = json.loads(cfg_file.read_text())
+        assert saved["model_url"] == ""
+        assert saved["modelset"] == {}
+        assert saved["tricksets"] == []

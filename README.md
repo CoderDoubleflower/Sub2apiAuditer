@@ -49,13 +49,15 @@ $ uvx petsitter
 
 Or you can do one off invocation:
 ```bash
-# Run petsitter with tricks
-petsitter -u http://localhost:11434 \
-          -m llama3:8b \
-          -t tricks/json_mode.py \
-          -t tricks/tool_call.py \
-          -l localhost:8080
+# Run petsitter, reading settings from the default config file
+# (~/.config/petsitter/config.json, or $PET_CONFIG_DIR)
+petsitter -l localhost:8080
+
+# Or point at a specific config file (model, tricksets, etc. all live there)
+petsitter -c another_petsitter_config.conf.json -l localhost:8080
 ```
+
+Configure the upstream model, tricksets, and modelset via the dashboard at `http://localhost:8080` or the `pet` CLI — everything is persisted to the config file, so a plain `petsitter` starts the same way next time.
 
 Either way, now you can point your AI applications to `http://localhost:8080/v1` and you're going through the petsitter middleware.
 
@@ -109,13 +111,9 @@ It works on `/v1/chat/completions` and `/p/<host>/.../chat/completions`, and hon
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--url` | `-u` | Base URL of upstream model (e.g., `http://localhost:11434`) |
-| `--model` | `-m` | Model name (optional for vllm, sglang, llama.cpp) |
-| `--key` | `-k` | API key for upstream (if required) |
-| `--trick` | `-t` | Path to a trick module, or `name:function` to run a lifecycle hook (can be repeated) |
-| `--trick-config` | `-tc` | Path to a trickset JSON file (can be repeated) |
-| `--model-config` | `-mc` |  Path to a model config JSON file (`{url, model, key}` objects) |
+| `--config` | `-c` | Path to a config file (e.g., `another_petsitter_config.conf.json`) or a config directory. Defaults to `$PET_CONFIG_DIR` if set, else `~/.config/petsitter`. Tricksets live in `<base>/tricksets`. |
 | `--listen` | `-l` | Host:port to listen on (default: `localhost:8080`) |
+| `--version` | `-v` | Show version and exit |
 
 ## Creating Custom Tricks
 ```mermaid
