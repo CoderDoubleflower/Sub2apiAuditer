@@ -1,8 +1,8 @@
-"""Self-improver trick: use the (hp: ...) prompt keyword to invoke an
+"""Self-improver trick: use the (petsitter: ...) prompt keyword to invoke an
 agent that can add, modify, and list tricks — all at runtime.
 
 Usage:
-    Include ``(hp: <request>)`` in any user message. The pattern is
+    Include ``(petsitter: <request>)`` in any user message. The pattern is
     stripped before the model sees it, and the request is handled by an
     agent loop using the default model.
 """
@@ -97,11 +97,11 @@ def _tool_defs_text() -> str:
 
 
 class SelfImproverTrick(Trick):
-    """Handles (hp: <request>) by running an agent loop."""
+    """Handles (petsitter: <request>) by running an agent loop."""
 
     __brief__ = "Agent that can add, modify, and list tricks at runtime"
     __display_name__ = "Self-Improver"
-    prompt_keyword = "hp"
+    prompt_keyword = "petsitter"
 
     def __init__(self, max_iterations: int = 10):
         self.max_iterations = max_iterations

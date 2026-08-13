@@ -225,7 +225,7 @@ class TestPPathEndpoint:
 
     @pytest.mark.asyncio
     async def test_p_route_config_magic_streams_diag(self):
-        """__hp_config__ through /p/ returns a streamed diag without hitting upstream."""
+        """__petsitter_config__ through /p/ returns a streamed diag without hitting upstream."""
         from httpx import AsyncClient, ASGITransport
 
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
@@ -241,7 +241,7 @@ class TestPPathEndpoint:
                     "POST",
                     "/p/build.nvidia.com/v1/chat/completions",
                     json={
-                        "messages": [{"role": "user", "content": "__hp_config__"}],
+                        "messages": [{"role": "user", "content": "__petsitter_config__"}],
                         "model": "nvidia-model",
                         "stream": True,
                     },
