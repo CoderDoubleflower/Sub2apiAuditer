@@ -392,6 +392,69 @@ class TestReadConfig:
             assert "opencode" not in names
 
 
+class TestInlineTricksets:
+    """config.json 'tricksets' entries can be inline objects, not just file paths."""
+
+    INLINE_TS = {
+        "schema": "0.8.0",
+        "name": "inline_ts",
+        "filters": {"X-Title": "inline", "Model": "*"},
+        "tricks": [{"id": "abc", "file": "tricks/json_mode.py", "enabled": True, "keyword": None}],
+    }
+
+    def test_from_dict_builds_trickset(self):
+        ts = Trickset.from_dict(dict(self.INLINE_TS))
+        assert ts.name == "inline_ts"
+        assert ts.filters == {"X-Title": "inline", "Model": "*"}
+        assert ts.file_path is None
+        assert len(ts.tricks) == 1
+        assert ts.tricks[0].__class__.__name__ == "JsonModeTrick"
+
+    def test_from_dict_requires_name(self):
+        with pytest.raises(ValueError):
+            Trickset.from_dict({"filters": {"X-Title": "*", "Model": "*"}, "tricks": []})
+
+    def test_reread_inline_data_in_place(self):
+        ts = Trickset.from_dict(dict(self.INLINE_TS))
+        orig = ts.tricks[0]
+        res = ts.reread_config(data={
+            "filters": {"X-Title": "inline2", "Model": "*"},
+            "tricks": [{"id": "abc", "file": "tricks/json_mode.py", "enabled": False, "keyword": "om"}],
+        })
+        assert res["action"] == "reloaded"
+        assert ts.filters == {"X-Title": "inline2", "Model": "*"}
+        assert ts.tricks[0] is orig
+        assert ts.trick_enabled == [False]
+        assert ts.trick_keywords == ["om"]
+
+    @pytest.mark.asyncio
+    async def test_create_app_loads_inline_trickset(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path / "tricksets")
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[],
+                         trickset_paths=[dict(self.INLINE_TS)])
+        from httpx import AsyncClient, ASGITransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            body = (await ac.get("/api/tricksets/inline_ts")).json()
+        assert body["filters"] == {"X-Title": "inline", "Model": "*"}
+        assert body["tricks"][0]["file"] == "tricks/json_mode.py"
+
+    @pytest.mark.asyncio
+    async def test_readconfig_loads_inline_trickset(self, monkeypatch, tmp_path):
+        """An inline trickset added to config.json appears after /readconfig."""
+        TestReadConfig._monkeypatch_paths(monkeypatch, tmp_path)
+        app = create_app(model_url="", model_name=None, api_key="", trick_paths=[],
+                         trickset_paths=[])
+        (tmp_path / "config.json").write_text(json.dumps({"tricksets": [dict(self.INLINE_TS)]}) + "\n")
+
+        from httpx import AsyncClient, ASGITransport
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            r = await ac.post("/readconfig")
+            assert r.status_code == 200
+            assert "inline_ts" in r.json()["tricksets"]["added"]
+            body = (await ac.get("/api/tricksets/inline_ts")).json()
+            assert body["tricks"][0]["file"] == "tricks/json_mode.py"
+
+
 class TestCLI:
     """Tests for the petsitter CLI (config flag + listen parsing)."""
 
@@ -473,3 +536,20 @@ class TestCLI:
         assert saved["model_url"] == ""
         assert saved["modelset"] == {}
         assert saved["tricksets"] == []
+
+    def test_cli_inline_trickset_passes_through(self, tmp_path):
+        """An inline trickset object in the config file reaches create_app."""
+        cfg_file = tmp_path / "config.json"
+        cfg_file.write_text(json.dumps({
+            "tricksets": [{
+                "schema": "0.8.0",
+                "name": "inline_ts",
+                "filters": {"X-Title": "inline", "Model": "*"},
+                "tricks": ["tricks/json_mode.py"],
+            }],
+        }) + "\n")
+        result, _, mock_create = self._invoke("-c", str(cfg_file))
+        assert result.exit_code == 0
+        ts_list = mock_create.call_args[1]["trickset_paths"]
+        assert len(ts_list) == 1 and isinstance(ts_list[0], dict)
+        assert ts_list[0]["name"] == "inline_ts"

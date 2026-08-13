@@ -4,6 +4,8 @@ Everything petsitter persists lives in JSON files under ``~/.config/petsitter/``
 (``config.json`` for global model settings, plus one ``tricksets/<name>.json``
 per trickset).  ``pet`` reads and writes those same files directly, so the CLI
 and the web dashboard always see the same state — no server needs to be running.
+Point any command at a different config area with ``pet -c <path>`` (a config
+directory or a config file); the flag must come before the subcommand.
 
 The commands mirror the dashboard tabs:
 
@@ -56,11 +58,20 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
 # --------------------------------------------------------------------------
 
 
+# Set by the -c/--config option before a subcommand runs.
+_override_config_dir: Path | None = None
+_override_config_path: Path | None = None
+
+
 def config_dir() -> Path:
+    if _override_config_dir is not None:
+        return _override_config_dir
     return Path(os.environ.get("PET_CONFIG_DIR", str(Path.home() / ".config" / "petsitter")))
 
 
 def config_path() -> Path:
+    if _override_config_path is not None:
+        return _override_config_path
     return config_dir() / "config.json"
 
 
@@ -420,6 +431,7 @@ class _PetGroup(click.Group):
         "pet add mykit kennel              # runs the trick's install hook",
         "pet enable mykit kennel           # activate a trick",
         "pet model default http://localhost:11434 --model gemma4",
+        "pet -c another_petsitter_config.conf.json ls",
     )
 
     def format_commands(self, ctx, formatter) -> None:
@@ -451,9 +463,26 @@ class _PetGroup(click.Group):
 
 @click.group(cls=_PetGroup)
 @click.version_option(_version(), prog_name="pet")
-def cli() -> None:
+@click.option(
+    "-c", "--config",
+    "config_arg",
+    default=None,
+    help="Path to a config file (e.g., another_petsitter_config.conf.json) or "
+         "config directory (default: $PET_CONFIG_DIR or ~/.config/petsitter). "
+         "Must come before the subcommand.",
+)
+def cli(config_arg: str | None) -> None:
     """Manage petsitter tricksets, tricks, and models from the command line.
     """
+    global _override_config_dir, _override_config_path
+    if config_arg:
+        p = Path(config_arg).expanduser().resolve()
+        if p.suffix:
+            _override_config_dir = p.parent
+            _override_config_path = p
+        else:
+            _override_config_dir = p
+            _override_config_path = p / "config.json"
 
 
 @cli.command("ls")

@@ -21,10 +21,64 @@ def pet_env(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _reset_config_override():
+    """-c sets module globals; clear them so tests stay isolated."""
+    from src import pet
+
+    pet._override_config_dir = None
+    pet._override_config_path = None
+    yield
+    pet._override_config_dir = None
+    pet._override_config_path = None
+
+
 def _invoke(runner, pet_env, *args):
     result = runner.invoke(cli, args)
     assert result.exit_code == 0, result.output
     return result
+
+
+class TestConfigFlag:
+    """pet -c <path> points all commands at an alternate config area."""
+
+    def test_config_dir_arg_used(self, runner, tmp_path):
+        """A directory arg sets config dir and default config.json path."""
+        cfg_dir = tmp_path / "custom"
+        result = runner.invoke(cli, ["-c", str(cfg_dir), "ls"])
+        assert result.exit_code == 0, result.output
+        from src import pet
+        assert pet._override_config_dir == cfg_dir
+        assert pet._override_config_path == cfg_dir / "config.json"
+
+    def test_config_file_arg_used(self, runner, tmp_path):
+        """A file arg sets config path directly; base dir is its parent."""
+        cfg_file = tmp_path / "another_petsitter_config.conf.json"
+        result = runner.invoke(cli, ["-c", str(cfg_file), "ls"])
+        assert result.exit_code == 0, result.output
+        from src import pet
+        assert pet._override_config_path == cfg_file
+        assert pet._override_config_dir == tmp_path
+
+    def test_new_writes_to_config_dir(self, runner, tmp_path):
+        """pet new with -c writes tricksets under the chosen base dir."""
+        cfg_dir = tmp_path / "custom"
+        _invoke(runner, tmp_path, "-c", str(cfg_dir), "new", "demo", "-t", "json_mode")
+        assert (cfg_dir / "tricksets" / "demo.json").exists()
+
+    def test_model_writes_to_config_file(self, runner, tmp_path):
+        """pet model with -c writes the config file at the given path."""
+        cfg_file = tmp_path / "custom" / "config.json"
+        _invoke(runner, tmp_path, "-c", str(cfg_file), "model", "default",
+                "http://localhost:11434", "--model", "gemma4")
+        data = json.loads(cfg_file.read_text())
+        assert data["model_url"] == "http://localhost:11434"
+        assert data["model_name"] == "gemma4"
+
+    def test_env_var_still_default(self, runner, pet_env):
+        """Without -c, PET_CONFIG_DIR still selects the base dir."""
+        _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
+        assert (pet_env / "tricksets" / "demo.json").exists()
 
 
 class TestBasics:

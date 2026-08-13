@@ -123,8 +123,8 @@ class Trickset:
         handler.setLevel(level)
         return log
 
-    def reread_config(self) -> dict:
-        """Re-apply configuration from the trickset's JSON file in place.
+    def reread_config(self, data: dict | None = None) -> dict:
+        """Re-apply configuration in place.
 
         Applies structural/config changes — filters, parameters, models,
         logging, and trick membership/enabled/keywords/config — without
@@ -133,19 +133,22 @@ class Trickset:
         ``configure()``. Tricks that are new (or whose file path changed)
         are instantiated fresh. Returns an ``action`` describing the result:
 
-        - ``"reloaded"`` — config re-applied from the file
-        - ``"kept"``     — no file path, left untouched
+        - ``"reloaded"`` — config re-applied (from *data* or the JSON file)
+        - ``"kept"``     — no file path and no inline data, left untouched
         - ``"removed"``  — file is gone, caller should unload it
         """
-        if not self.file_path:
-            return {"name": self.name, "action": "kept", "reason": "no file"}
-        p = Path(self.file_path).resolve()
-        if not p.exists():
-            if self.name == "_default":
-                return {"name": self.name, "action": "kept", "reason": "default has no file yet"}
-            return {"name": self.name, "action": "removed", "reason": "file gone"}
-
-        data = json.loads(p.read_text())
+        if data is None:
+            if not self.file_path:
+                return {"name": self.name, "action": "kept", "reason": "no file"}
+            p = Path(self.file_path).resolve()
+            if not p.exists():
+                if self.name == "_default":
+                    return {"name": self.name, "action": "kept", "reason": "default has no file yet"}
+                return {"name": self.name, "action": "removed", "reason": "file gone"}
+            source = str(p)
+            data = json.loads(p.read_text())
+        else:
+            source = "inline"
         self.filters = data.get("filters", {"X-Title": "*", "Model": "*"})
         self.parameters = data.get("parameters", {})
         self.models = data.get("models", {})
@@ -218,7 +221,7 @@ class Trickset:
         self.trick_ids = new_ids
         self.trick_keywords = new_keywords
         self.trick_configs = new_configs
-        self.get_logger().info("trickset '%s': reread config from %s", self.name, p)
+        self.get_logger().info("trickset '%s': reread config from %s", self.name, source)
         return {
             "name": self.name,
             "action": "reloaded",
@@ -265,7 +268,18 @@ class Trickset:
         if not p.exists():
             raise FileNotFoundError(f"Trickset file not found: {path}")
         data = json.loads(p.read_text())
-        name = data.get("name", p.stem)
+        return Trickset.from_dict(data, file_path=str(p))
+
+    @classmethod
+    def from_dict(cls, data: dict, file_path: str | None = None) -> "Trickset":
+        """Build a Trickset from a JSON object (inline in config.json or a file).
+
+        When *data* comes from a config file, *file_path* should be ``None`` so
+        the trickset is treated as inline and never re-read from disk.
+        """
+        name = data.get("name") or (Path(file_path).stem if file_path else "")
+        if not name:
+            raise ValueError("Trickset has no name")
         schema = data.get("schema", "unknown")
         filters = data.get("filters", {"X-Title": "*", "Model": "*"})
         raw_tricks = data.get("tricks", [])
@@ -293,9 +307,9 @@ class Trickset:
         models = data.get("models", {})
         logfile = data.get("logfile")
         loglevel = data.get("loglevel", "INFO")
-        ts = Trickset(name, schema, filters, trick_paths, file_path=str(p), parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords, logfile=logfile, loglevel=loglevel, trick_configs=trick_configs)
+        ts = cls(name, schema, filters, trick_paths, file_path=file_path, parameters=parameters, models=models, trick_enabled=trick_enabled, trick_ids=trick_ids, trick_keywords=trick_keywords, logfile=logfile, loglevel=loglevel, trick_configs=trick_configs)
         ts.load_tricks()
-        ts.get_logger().info("trickset '%s': loaded %d tricks from %s", name, len(ts.tricks), path)
+        ts.get_logger().info("trickset '%s': loaded %d tricks", name, len(ts.tricks))
         return ts
 
     @staticmethod

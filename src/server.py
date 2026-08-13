@@ -199,6 +199,34 @@ def reload_config(handler: "ProxyHandler") -> dict:
         handler.tricksets[ts.name] = ts
         summary["added"].append(ts.name)
 
+    # Reconcile the config file's "tricksets" list: entries are either file
+    # paths or inline definitions. Inline tricksets are re-applied in place.
+    cfg_entries = cfg.get("tricksets", [])
+    if isinstance(cfg_entries, list):
+        for entry in cfg_entries:
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                if not name:
+                    continue
+                if name in handler.tricksets:
+                    handler.tricksets[name].reread_config(data=entry)
+                else:
+                    try:
+                        handler.tricksets[name] = Trickset.from_dict(entry)
+                    except Exception:
+                        logging.getLogger("petsitter").exception("Failed to load inline trickset %r on reread", entry)
+                        continue
+                    summary["added"].append(name)
+            elif isinstance(entry, str):
+                try:
+                    ts = Trickset.load_from_file(entry)
+                except Exception:
+                    logging.getLogger("petsitter").exception("Failed to load trickset %s on reread", entry)
+                    continue
+                if ts.name not in handler.tricksets:
+                    handler.tricksets[ts.name] = ts
+                    summary["added"].append(ts.name)
+
     return {
         "models": {
             "model_url": handler.model_url,
@@ -256,7 +284,10 @@ def create_app(
 
     if trickset_paths:
         for tp in trickset_paths:
-            ts = Trickset.load_from_file(tp)
+            if isinstance(tp, dict):
+                ts = Trickset.from_dict(tp)
+            else:
+                ts = Trickset.load_from_file(tp)
             tricksets[ts.name] = ts
 
     # Restore the saved "_default" trickset so dashboard edits survive restarts.
@@ -815,7 +846,8 @@ def cli(config_arg: str | None, listen_on: str) -> None:
     if model_name:
         click.echo(f"Model: {model_name}")
     if cfg_tricksets:
-        click.echo(f"Trick configs: {', '.join(cfg_tricksets)}")
+        labels = [e if isinstance(e, str) else e.get("name", "<inline>") for e in cfg_tricksets]
+        click.echo(f"Trick configs: {', '.join(labels)}")
     click.echo(f"Config: {CONFIG_PATH}")
 
     log_level = os.getenv("LOGLEVEL", "INFO").upper()

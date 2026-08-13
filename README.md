@@ -57,7 +57,7 @@ petsitter -l localhost:8080
 petsitter -c another_petsitter_config.conf.json -l localhost:8080
 ```
 
-Configure the upstream model, tricksets, and modelset via the dashboard at `http://localhost:8080` or the `pet` CLI — everything is persisted to the config file, so a plain `petsitter` starts the same way next time.
+Configure the upstream model, tricksets, and modelset via the dashboard at `http://localhost:8080` or the `pet` CLI — everything is persisted to the config file, so a plain `petsitter` starts the same way next time. `pet` accepts the same `-c` flag (before the subcommand, e.g. `pet -c another_petsitter_config.conf.json ls`) so both tools can target the same config area.
 
 Either way, now you can point your AI applications to `http://localhost:8080/v1` and you're going through the petsitter middleware.
 
