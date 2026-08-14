@@ -27,8 +27,7 @@ The commands mirror the dashboard tabs:
     pet install <trick>             # run a trick's install() hook
     pet uninstall <trick>           # run a trick's uninstall() hook
     pet lifecycle <trick> <hook>
-    pet models [trickset]           # show model config
-    pet model <key> <url> [opts]    # set a model entry (--trickset to scope)
+    pet model [name] [param] [value]  # show or set a model entry
     pet logfile <trickset> [path]
     pet loglevel <trickset> [level]
     pet examples [--force]          # install the example tricksets
@@ -249,7 +248,7 @@ def _model_entry_display(entry: dict, indent: str = "    ") -> str:
     elif model is False:
         parts.append("model=passthrough")
     if key is not False and key != "":
-        parts.append("key=****")
+        parts.append(f"key={key}")
     elif key is False:
         parts.append("key=passthrough")
     return indent + "  ".join(parts) if parts else indent + "(empty)"
@@ -360,25 +359,70 @@ def _print_available_tricks(tricks: list[dict], json_out: bool = False) -> None:
         click.echo(line)
 
 
-def _print_models(global_cfg: dict, scoped: dict, json_out: bool = False) -> None:
-    keys = sorted(set(global_cfg.keys()) | set(scoped.keys()))
-    if json_out:
-        click.echo(json.dumps({
-            "global": global_cfg,
-            "scoped": scoped,
-            "keys": keys,
-        }, indent=2))
+MODEL_PARAMS = ("url", "model", "key")
+
+
+def _global_models() -> dict:
+    """Return the global modelset, synthesizing ``default`` from top-level fields."""
+    cfg = load_config()
+    models = dict(cfg.get("modelset", {}))
+    if "default" not in models:
+        models["default"] = {
+            "url": cfg.get("model_url", ""),
+            "model": cfg.get("model_name", ""),
+            "key": cfg.get("api_key", ""),
+        }
+    return models
+
+
+def _val_str(val: Any) -> str:
+    return val if isinstance(val, str) else json.dumps(val)
+
+
+def _model_set(name: str, param: str, val: Any, ts_name: str) -> None:
+    if ts_name == "_default":
+        cfg = load_config()
+        modelset = dict(cfg.get("modelset", {}))
+        entry = dict(modelset.get(name, {})) if isinstance(modelset.get(name), dict) else {}
+        entry[param] = val
+        modelset[name] = entry
+        cfg["modelset"] = modelset
+        if name == "default":
+            cfg["model_url"] = entry.get("url", "")
+            cfg["model_name"] = "" if entry.get("model") is False else (entry.get("model") or "")
+            cfg["api_key"] = "" if entry.get("key") is False else (entry.get("key") or "")
+        save_config(cfg)
+        click.echo(f"model '{name}' {param}={_val_str(val)} saved")
         return
-    if not keys:
-        click.echo("No models configured.")
+    ts = _load_ts(ts_name)
+    entry = dict(ts.models.get(name, {})) if isinstance(ts.models.get(name), dict) else {}
+    entry[param] = val
+    ts.models[name] = entry
+    _save_ts(ts)
+    click.echo(f"model '{name}' {param}={_val_str(val)} saved on trickset '{ts_name}'")
+
+
+def _model_remove(name: str, ts_name: str) -> None:
+    if ts_name == "_default":
+        cfg = load_config()
+        modelset = dict(cfg.get("modelset", {}))
+        if name not in modelset and name != "default":
+            raise click.ClickException(f"model '{name}' not found")
+        modelset.pop(name, None)
+        if name == "default":
+            cfg["model_url"] = ""
+            cfg["model_name"] = ""
+            cfg["api_key"] = ""
+        cfg["modelset"] = modelset
+        save_config(cfg)
+        click.echo(f"Removed model '{name}' from global config")
         return
-    for k in keys:
-        g = global_cfg.get(k, {}) if isinstance(global_cfg.get(k), dict) else {}
-        s = scoped.get(k, {}) if isinstance(scoped.get(k), dict) else {}
-        entry = s if s else g
-        scoped_mark = "  (scoped)" if s else ""
-        click.echo(f"{k}{scoped_mark}")
-        click.echo(_model_entry_display(entry))
+    ts = _load_ts(ts_name)
+    if name not in ts.models:
+        raise click.ClickException(f"model '{name}' not found on trickset '{ts_name}'")
+    ts.models.pop(name, None)
+    _save_ts(ts)
+    click.echo(f"Removed model '{name}' from trickset '{ts_name}'")
 
 
 # --------------------------------------------------------------------------
@@ -418,7 +462,7 @@ class _PetGroup(click.Group):
     COMMAND_SECTIONS: list[tuple[str, list[str]]] = [
         ("Tricksets", ["ls", "show", "new", "examples", "rename", "delete"]),
         ("Tricks", ["tricks", "add", "rm", "enable", "disable", "reorder", "keyword", "config", "param", "filter"]),
-        ("Models", ["models", "model"]),
+        ("Models", ["model"]),
         ("Lifecycle", ["install", "uninstall", "lifecycle"]),
         ("Logging", ["logfile", "loglevel"]),
         ("System", ["status", "agents"]),
@@ -430,7 +474,7 @@ class _PetGroup(click.Group):
         "pet new mykit -t json_mode -t kennel",
         "pet add mykit kennel              # runs the trick's install hook",
         "pet enable mykit kennel           # activate a trick",
-        "pet model default http://localhost:11434 --model gemma4",
+        "pet model default url http://localhost:11434",
         "pet -c another_petsitter_config.conf.json ls",
     )
 
@@ -784,96 +828,68 @@ def lifecycle_cmd(trick: str, hook: str) -> None:
     _run_lifecycle(_resolve_trick_spec(trick), hook)
 
 
-@cli.command("models")
-@click.argument("name", required=False)
-@click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
-def models_cmd(name: str | None, json_out: bool) -> None:
-    """Show model config. Without a name, shows the global config.json modelset."""
-    cfg = load_config()
-    if not name or name == "_default":
-        global_models = dict(cfg.get("modelset", {}))
-        if "default" not in global_models:
-            global_models["default"] = {
-                "url": cfg.get("model_url", ""),
-                "model": cfg.get("model_name", ""),
-                "key": cfg.get("api_key", ""),
-            }
-        _print_models(global_models, {}, json_out=json_out)
-        return
-    ts = _load_ts(name)
-    scoped = {k: v for k, v in ts.models.items() if isinstance(v, dict)}
-    _print_models(dict(cfg.get("modelset", {})), scoped, json_out=json_out)
-
-
 @cli.command("model")
-@click.argument("key")
-@click.argument("url", required=False)
+@click.argument("name", required=False)
+@click.argument("param", required=False)
+@click.argument("value", required=False)
 @click.option("--trickset", "ts_name", default="_default", show_default=True,
               help="Scope: a trickset name, or _default for the global config.json modelset")
-@click.option("--model", "model_name", default=None, help="Model name to send upstream")
-@click.option("--key", "api_key", default=None, help="API key for the upstream")
-@click.option("--model-passthrough", is_flag=True, help="Pass through the client model name (store false)")
-@click.option("--key-passthrough", is_flag=True, help="Pass through the client API key (store false)")
-@click.option("--remove", is_flag=True, help="Remove this model key")
-def model_cmd(key: str, url: str | None, ts_name: str, model_name: str | None,
-              api_key: str | None, model_passthrough: bool, key_passthrough: bool, remove: bool) -> None:
-    """Set a model config entry for a model key.
+@click.option("--remove", is_flag=True, help="Remove this model entry")
+def model_cmd(name: str | None, param: str | None, value: str | None,
+              ts_name: str, remove: bool) -> None:
+    """View or set model config.
 
-    Without --trickset the entry is stored in the global config.json modelset;
-    with --trickset <name> it is stored on that trickset (overriding the
-    global entry for that key).
+    \b
+      pet model                            # show all models (JSON)
+      pet model default                    # show the 'default' entry (JSON)
+      pet model default url                # show just the url value
+      pet model default url http://...     # set the url value
 
-    Examples:
-      pet model default http://localhost:11434 --model llama3:8b
-      pet model thinker http://localhost:11434 --model lfm2.5:latest
-      pet model default http://localhost:11434 --model llama3:8b --trickset opencode
-      pet model toolcall --remove
+    \b
+    Params: url, model, key. Pass the value 'false' for passthrough
+    (e.g. 'pet model default model false'). Scope to a trickset with
+    --trickset; the 'default' entry also drives the top-level
+    model_url/model_name/api_key in config.json.
     """
-    if not url and not remove:
-        raise click.UsageError("url is required (or pass --remove)")
-
-    entry: dict[str, Any] = {}
-    if url is not None:
-        entry["url"] = url.rstrip("/")
-    if model_passthrough:
-        entry["model"] = False
-    elif model_name is not None:
-        entry["model"] = model_name
-    if key_passthrough:
-        entry["key"] = False
-    elif api_key is not None:
-        entry["key"] = api_key
-
-    if ts_name == "_default":
-        cfg = load_config()
-        modelset = dict(cfg.get("modelset", {}))
-        if remove:
-            modelset.pop(key, None)
-            if key == "default":
-                cfg["model_url"] = ""
-                cfg["model_name"] = ""
-                cfg["api_key"] = ""
-            cfg["modelset"] = modelset
-            save_config(cfg)
-            click.echo(f"Removed model key '{key}' from global config")
-            return
-        modelset[key] = entry
-        cfg["modelset"] = modelset
-        if key == "default":
-            cfg["model_url"] = entry.get("url", "")
-            cfg["model_name"] = "" if entry.get("model") is False else (entry.get("model") or "")
-            cfg["api_key"] = "" if entry.get("key") is False else (entry.get("key") or "")
-        save_config(cfg)
-        click.echo(f"Global model '{key}' saved: {json.dumps(entry)}")
+    if remove:
+        if not name:
+            raise click.UsageError("--remove requires a model name")
+        _model_remove(name, ts_name)
         return
 
-    ts = _load_ts(ts_name)
-    if remove:
-        ts.models.pop(key, None)
-    else:
-        ts.models[key] = entry
-    _save_ts(ts)
-    click.echo(f"Model '{key}' saved on trickset '{ts_name}': {json.dumps(entry)}")
+    if value is not None:
+        if not name or not param:
+            raise click.UsageError("set requires: pet model <name> <param> <value>")
+        if param not in MODEL_PARAMS:
+            raise click.UsageError(f"unknown param '{param}' (expected one of {', '.join(MODEL_PARAMS)})")
+        _model_set(name, param, _parse_value(value), ts_name)
+        return
+
+    global_models = _global_models()
+    scoped: dict = {}
+    if ts_name != "_default":
+        ts = _load_ts(ts_name)
+        scoped = {k: v for k, v in ts.models.items() if isinstance(v, dict)}
+
+    effective = dict(global_models)
+    effective.update(scoped)
+
+    if name is None:
+        click.echo(json.dumps(effective, indent=2))
+        return
+
+    entry = effective.get(name)
+    if entry is None:
+        raise click.ClickException(f"model '{name}' not found (use 'pet model' to list)")
+    if param is None:
+        click.echo(json.dumps(entry, indent=2))
+        return
+    if param not in MODEL_PARAMS:
+        raise click.UsageError(f"unknown param '{param}' (expected one of {', '.join(MODEL_PARAMS)})")
+    if param not in entry:
+        click.echo("(unset)")
+        return
+    click.echo(_val_str(entry[param]))
 
 
 @cli.command("logfile")

@@ -69,8 +69,8 @@ class TestConfigFlag:
     def test_model_writes_to_config_file(self, runner, tmp_path):
         """pet model with -c writes the config file at the given path."""
         cfg_file = tmp_path / "custom" / "config.json"
-        _invoke(runner, tmp_path, "-c", str(cfg_file), "model", "default",
-                "http://localhost:11434", "--model", "gemma4")
+        _invoke(runner, tmp_path, "-c", str(cfg_file), "model", "default", "url", "http://localhost:11434")
+        _invoke(runner, tmp_path, "-c", str(cfg_file), "model", "default", "model", "gemma4")
         data = json.loads(cfg_file.read_text())
         assert data["model_url"] == "http://localhost:11434"
         assert data["model_name"] == "gemma4"
@@ -79,6 +79,82 @@ class TestConfigFlag:
         """Without -c, PET_CONFIG_DIR still selects the base dir."""
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
         assert (pet_env / "tricksets" / "demo.json").exists()
+
+
+class TestModelCommand:
+    """pet model [name] [param] [value] — show/set model config."""
+
+    def _set(self, runner, pet_env, name, param, value):
+        return _invoke(runner, pet_env, "model", name, param, value)
+
+    def test_show_all_has_default(self, runner, pet_env):
+        _invoke(runner, pet_env, "model", "default", "url", "http://localhost:11434")
+        result = _invoke(runner, pet_env, "model")
+        assert json.loads(result.output)["default"]["url"] == "http://localhost:11434"
+
+    def test_show_entry(self, runner, pet_env):
+        self._set(runner, pet_env, "thinker", "url", "http://localhost:11434")
+        self._set(runner, pet_env, "thinker", "model", "lfm2.5:latest")
+        result = _invoke(runner, pet_env, "model", "thinker")
+        data = json.loads(result.output)
+        assert data["url"] == "http://localhost:11434"
+        assert data["model"] == "lfm2.5:latest"
+
+    def test_show_single_value(self, runner, pet_env):
+        self._set(runner, pet_env, "default", "url", "http://localhost:11434")
+        result = _invoke(runner, pet_env, "model", "default", "url")
+        assert result.output.strip() == "http://localhost:11434"
+
+    def test_show_unset_value(self, runner, pet_env):
+        self._set(runner, pet_env, "default", "url", "http://localhost:11434")
+        result = _invoke(runner, pet_env, "model", "default", "model")
+        assert "(unset)" in result.output
+
+    def test_set_value(self, runner, pet_env):
+        self._set(runner, pet_env, "default", "model", "gemma4")
+        data = json.loads((pet_env / "config.json").read_text())
+        assert data["modelset"]["default"]["model"] == "gemma4"
+        assert data["model_name"] == "gemma4"
+
+    def test_passthrough_value(self, runner, pet_env):
+        self._set(runner, pet_env, "default", "model", "false")
+        data = json.loads((pet_env / "config.json").read_text())
+        assert data["modelset"]["default"]["model"] is False
+        assert data["model_name"] == ""
+
+    def test_unknown_param_rejected(self, runner, pet_env):
+        result = runner.invoke(cli, ["model", "default", "bogus", "x"])
+        assert result.exit_code != 0
+        assert "unknown param" in result.output
+
+    def test_remove(self, runner, pet_env):
+        self._set(runner, pet_env, "thinker", "url", "http://localhost:11434")
+        result = _invoke(runner, pet_env, "model", "thinker", "--remove")
+        assert "Removed" in result.output
+        data = json.loads((pet_env / "config.json").read_text())
+        assert "thinker" not in data["modelset"]
+
+    def test_scoped_set_and_show(self, runner, pet_env):
+        _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
+        self._set(runner, pet_env, "thinker", "url", "http://localhost:11434")
+        result = _invoke(runner, pet_env, "model", "--trickset", "demo", "thinker", "url", "http://localhost:9999")
+        assert "saved on trickset" in result.output
+        ts = json.loads((pet_env / "tricksets" / "demo.json").read_text())
+        assert ts["models"]["thinker"]["url"] == "http://localhost:9999"
+        shown = _invoke(runner, pet_env, "model", "--trickset", "demo", "thinker", "url")
+        assert shown.output.strip() == "http://localhost:9999"
+
+    def test_key_value_is_shown(self, runner, pet_env):
+        self._set(runner, pet_env, "default", "key", "sekrit")
+        result = _invoke(runner, pet_env, "model", "default", "key")
+        assert result.output.strip() == "sekrit"
+        data = json.loads(_invoke(runner, pet_env, "model", "default").output)
+        assert data["key"] == "sekrit"
+
+    def test_missing_model_errors(self, runner, pet_env):
+        result = runner.invoke(cli, ["model", "nope"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
 
 
 class TestBasics:
@@ -192,34 +268,6 @@ class TestParameters:
         assert data["parameters"] == {}
 
 
-class TestModels:
-    def test_model_global_default(self, runner, pet_env):
-        result = _invoke(runner, pet_env, "model", "default", "http://localhost:11434", "--model", "gemma4")
-        assert "Global model 'default' saved" in result.output
-        cfg = json.loads((pet_env / "config.json").read_text())
-        assert cfg["modelset"]["default"] == {"url": "http://localhost:11434", "model": "gemma4"}
-        assert cfg["model_url"] == "http://localhost:11434"
-        assert cfg["model_name"] == "gemma4"
-
-    def test_model_scoped_to_trickset(self, runner, pet_env):
-        _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        _invoke(runner, pet_env, "model", "default", "http://127.0.0.1:123", "--trickset", "demo")
-        data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
-        assert data["models"] == {"default": {"url": "http://127.0.0.1:123"}}
-
-    def test_model_remove(self, runner, pet_env):
-        _invoke(runner, pet_env, "model", "default", "http://localhost:11434")
-        _invoke(runner, pet_env, "model", "default", "--remove")
-        cfg = json.loads((pet_env / "config.json").read_text())
-        assert "default" not in cfg.get("modelset", {})
-        assert cfg["model_url"] == ""
-
-    def test_model_requires_url_or_remove(self, runner, pet_env):
-        result = runner.invoke(cli, ["model", "default"])
-        assert result.exit_code != 0
-        assert "url is required" in result.output
-
-
 class TestTricksetOps:
     def test_rename(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
@@ -248,7 +296,7 @@ class TestTricksetOps:
         _invoke(runner, pet_env, "disable", "demo", "kennel")
         _invoke(runner, pet_env, "keyword", "demo", "json_mode", "jm")
         _invoke(runner, pet_env, "param", "demo", "retries=3")
-        _invoke(runner, pet_env, "model", "default", "http://127.0.0.1:1", "--trickset", "demo")
+        _invoke(runner, pet_env, "model", "default", "url", "http://127.0.0.1:1", "--trickset", "demo")
         ts = Trickset.load_from_file(str(pet_env / "tricksets" / "demo.json"))
         assert [type(t).__name__ for t in ts.tricks] == ["JsonModeTrick", "KennelTrick"]
         assert ts.trick_enabled == [True, False]
