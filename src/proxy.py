@@ -177,7 +177,11 @@ class ProxyHandler:
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": json.dumps(diag, indent=2),
+                    "content": "\n".join([
+                        "```json",
+                        json.dumps(diag, indent=2),
+                        "```"
+                    ])
                 },
                 "finish_reason": "stop",
             }],
