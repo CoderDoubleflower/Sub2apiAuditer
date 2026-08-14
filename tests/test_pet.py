@@ -45,7 +45,7 @@ class TestConfigFlag:
     def test_config_dir_arg_used(self, runner, tmp_path):
         """A directory arg sets config dir and default config.json path."""
         cfg_dir = tmp_path / "custom"
-        result = runner.invoke(cli, ["-c", str(cfg_dir), "ls"])
+        result = runner.invoke(cli, ["-c", str(cfg_dir), "ts"])
         assert result.exit_code == 0, result.output
         from src import pet
         assert pet._override_config_dir == cfg_dir
@@ -54,7 +54,7 @@ class TestConfigFlag:
     def test_config_file_arg_used(self, runner, tmp_path):
         """A file arg sets config path directly; base dir is its parent."""
         cfg_file = tmp_path / "another_petsitter_config.conf.json"
-        result = runner.invoke(cli, ["-c", str(cfg_file), "ls"])
+        result = runner.invoke(cli, ["-c", str(cfg_file), "ts"])
         assert result.exit_code == 0, result.output
         from src import pet
         assert pet._override_config_path == cfg_file
@@ -159,8 +159,8 @@ class TestModelCommand:
 
 class TestBasics:
     def test_ls_empty(self, runner, pet_env):
-        result = _invoke(runner, pet_env, "ls")
-        assert "No tricksets yet" in result.output
+        result = _invoke(runner, pet_env, "ts")
+        assert json.loads(result.output) == {}
 
     def test_new_creates_file(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "--x-title", "opencode*", "-t", "json_mode")
@@ -173,19 +173,19 @@ class TestBasics:
 
     def test_show_reports_created_trickset(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        result = _invoke(runner, pet_env, "show", "demo")
-        assert "demo" in result.output
-        assert "JSON Mode" in result.output
+        result = _invoke(runner, pet_env, "ts", "demo")
+        data = json.loads(result.output)
+        assert data["name"] == "demo"
+        assert data["tricks"][0]["file"] == "tricks/json_mode.py"
 
     def test_show_without_name_is_table(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "--x-title", "demo*", "-t", "json_mode")
         _invoke(runner, pet_env, "new", "other", "-t", "kennel")
-        result = _invoke(runner, pet_env, "show")
-        assert "NAME" in result.output
-        assert "FILTERS" in result.output
-        assert "demo" in result.output
-        assert "demo*" in result.output
-        assert "other" in result.output
+        result = _invoke(runner, pet_env, "ts")
+        data = json.loads(result.output)
+        assert "demo" in data
+        assert "other" in data
+        assert data["demo"]["filters"]["X-Title"] == "demo*"
 
     def test_default_filter_when_no_title(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
@@ -221,16 +221,16 @@ class TestTricks:
 
     def test_enable_disable(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        _invoke(runner, pet_env, "disable", "demo", "json_mode")
+        _invoke(runner, pet_env, "ts", "demo", "json_mode", "enable", "false")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["tricks"][0]["enabled"] is False
-        _invoke(runner, pet_env, "enable", "demo", "json_mode")
+        _invoke(runner, pet_env, "ts", "demo", "json_mode", "enable", "true")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["tricks"][0]["enabled"] is True
 
     def test_keyword(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        _invoke(runner, pet_env, "keyword", "demo", "json_mode", "go")
+        _invoke(runner, pet_env, "ts", "demo", "json_mode", "keyword", "go")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["tricks"][0]["keyword"] == "go"
 
@@ -242,7 +242,7 @@ class TestTricks:
 
     def test_config_sets_fields(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "mcp_tools")
-        _invoke(runner, pet_env, "config", "demo", "mcp_tools", "mcp_path=/tmp/mcp.json")
+        _invoke(runner, pet_env, "ts", "demo", "mcp_tools", "config", '{"mcp_path": "/tmp/mcp.json"}')
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["tricks"][0]["config"] == {"mcp_path": "/tmp/mcp.json"}
 
@@ -256,14 +256,16 @@ class TestTricks:
 class TestParameters:
     def test_param_parses_literals(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        _invoke(runner, pet_env, "param", "demo", "retries=3", "name=foo", "debug=true")
+        _invoke(runner, pet_env, "ts", "demo", "param", "retries", "3")
+        _invoke(runner, pet_env, "ts", "demo", "param", "name", "foo")
+        _invoke(runner, pet_env, "ts", "demo", "param", "debug", "true")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["parameters"] == {"retries": 3, "name": "foo", "debug": True}
 
     def test_param_clears(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
-        _invoke(runner, pet_env, "param", "demo", "retries=3")
-        _invoke(runner, pet_env, "param", "demo", "--clear")
+        _invoke(runner, pet_env, "ts", "demo", "param", "retries", "3")
+        _invoke(runner, pet_env, "ts", "demo", "param", "--clear")
         data = json.loads((pet_env / "tricksets" / "demo.json").read_text())
         assert data["parameters"] == {}
 
@@ -293,9 +295,9 @@ class TestTricksetOps:
 
     def test_output_is_server_loadable(self, runner, pet_env):
         _invoke(runner, pet_env, "new", "demo", "--x-title", "opencode*", "-t", "json_mode", "-t", "kennel")
-        _invoke(runner, pet_env, "disable", "demo", "kennel")
-        _invoke(runner, pet_env, "keyword", "demo", "json_mode", "jm")
-        _invoke(runner, pet_env, "param", "demo", "retries=3")
+        _invoke(runner, pet_env, "ts", "demo", "kennel", "enable", "false")
+        _invoke(runner, pet_env, "ts", "demo", "json_mode", "keyword", "jm")
+        _invoke(runner, pet_env, "ts", "demo", "param", "retries", "3")
         _invoke(runner, pet_env, "model", "default", "url", "http://127.0.0.1:1", "--trickset", "demo")
         ts = Trickset.load_from_file(str(pet_env / "tricksets" / "demo.json"))
         assert [type(t).__name__ for t in ts.tricks] == ["JsonModeTrick", "KennelTrick"]

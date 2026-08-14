@@ -9,20 +9,21 @@ directory or a config file); the flag must come before the subcommand.
 
 The commands mirror the dashboard tabs:
 
-    pet ls                          # list tricksets (look at tricksets)
-    pet show <trickset>             # full detail for one trickset
-    pet tricks                      # list available trick modules
-    pet new <name>                  # create a trickset
-    pet delete <name>               # delete a trickset
-    pet rename <old> <new>          # rename a trickset
-    pet add <trickset> <trick>      # add a trick to a trickset
-    pet rm <trickset> <trick>       # remove a trick from a trickset
-    pet enable <trickset> <trick>   # activate a trick
-    pet disable <trickset> <trick>  # deactivate a trick
+    pet ts                           # list tricksets (look at tricksets)
+    pet ts <trickset>                # full detail for one trickset
+    pet ts <trickset> <trick>        # detail for one trick
+    pet ts <trickset> <trick> <param> <value>  # set a trick param
+    pet tricks                       # list available trick modules
+    pet new <name>                   # create a trickset
+    pet delete <name>                # delete a trickset
+    pet rename <old> <new>           # rename a trickset
+    pet add <trickset> <trick>       # add a trick to a trickset
+    pet rm <trickset> <trick>        # remove a trick from a trickset
+    pet ts <trickset> <trick> enable false   # deactivate a trick
+    pet ts <trickset> <trick> keyword go     # set a prompt keyword
+    pet ts <trickset> <trick> config '{"k": 1}'  # set trick config
     pet reorder <trickset> <trick> <index>
-    pet keyword <trickset> <trick> [kw]
-    pet config <trickset> <trick> key=value...
-    pet param <trickset> key=value...
+    pet ts <trickset> param key value  # trickset-level parameters
     pet filter <trickset> [--x-title G] [--model G]
     pet install <trick>             # run a trick's install() hook
     pet uninstall <trick>           # run a trick's uninstall() hook
@@ -236,24 +237,6 @@ def _parse_value(val: str) -> Any:
         return val
 
 
-def _model_entry_display(entry: dict, indent: str = "    ") -> str:
-    url = entry.get("url", "")
-    model = entry.get("model", "")
-    key = entry.get("key", "")
-    parts = []
-    if url:
-        parts.append(f"url={url}")
-    if model is not False and model != "":
-        parts.append(f"model={model}")
-    elif model is False:
-        parts.append("model=passthrough")
-    if key is not False and key != "":
-        parts.append(f"key={key}")
-    elif key is False:
-        parts.append("key=passthrough")
-    return indent + "  ".join(parts) if parts else indent + "(empty)"
-
-
 def _version() -> str:
     try:
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
@@ -265,75 +248,6 @@ def _version() -> str:
 # --------------------------------------------------------------------------
 # output helpers
 # --------------------------------------------------------------------------
-
-
-def _print_trickset_list(ts: Trickset, json_out: bool = False) -> None:
-    if json_out:
-        click.echo(json.dumps(ts.to_dict(), indent=2))
-        return
-    filters = "  ".join(f"{k}={v}" for k, v in ts.filters.items())
-    click.echo(f"{ts.name}  ({filters})")
-    if not ts.trick_paths:
-        click.echo("    (no tricks)")
-        return
-    for i, path in enumerate(ts.trick_paths):
-        enabled = i < len(ts.trick_enabled) and ts.trick_enabled[i]
-        mark = "on " if enabled else "off"
-        label = _trick_label(ts, i)
-        kw = ts.trick_keywords[i] if i < len(ts.trick_keywords) and ts.trick_keywords[i] else None
-        suffix = f"  keyword={kw}" if kw else ""
-        click.echo(f"  {mark:<4} {label:<24} {path}{suffix}")
-
-
-def _print_trickset_table(json_out: bool = False) -> None:
-    files = _list_ts_files()
-    if json_out:
-        click.echo(json.dumps([Trickset.load_from_file(str(f)).to_dict() for f in files], indent=2))
-        return
-    if not files:
-        click.echo("No tricksets yet. Create one with 'pet new <name>' or run 'pet examples'.")
-        return
-    width = max(len(Trickset.load_from_file(str(f)).name) for f in files)
-    width = max(width, len("NAME"))
-    click.echo(f"{'NAME':<{width}}  FILTERS")
-    for f in files:
-        ts = Trickset.load_from_file(str(f))
-        filters = "  ".join(f"{k}={v}" for k, v in ts.filters.items())
-        click.echo(f"{ts.name:<{width}}  {filters}")
-
-
-def _print_trickset_detail(ts: Trickset, json_out: bool = False) -> None:
-    if json_out:
-        click.echo(json.dumps(ts.to_dict(), indent=2))
-        return
-    click.echo(f"name:     {ts.name}")
-    click.echo(f"schema:   {ts.schema}")
-    click.echo(f"file:     {ts.file_path or '(not persisted)'}")
-    click.echo(f"filters:  {'  '.join(f'{k}={v}' for k, v in ts.filters.items())}")
-    click.echo(f"logfile:  {ts.logfile}")
-    click.echo(f"loglevel: {ts.loglevel}")
-    if ts.parameters:
-        click.echo(f"parameters: {json.dumps(ts.parameters)}")
-    else:
-        click.echo("parameters: {}")
-    if ts.models:
-        click.echo("models:")
-        for k, entry in sorted(ts.models.items()):
-            click.echo(f"  {k}")
-            click.echo(_model_entry_display(entry if isinstance(entry, dict) else {}))
-    else:
-        click.echo("models: {}")
-    click.echo(f"tricks ({len(ts.trick_paths)}):")
-    for i, path in enumerate(ts.trick_paths):
-        enabled = i < len(ts.trick_enabled) and ts.trick_enabled[i]
-        mark = "on " if enabled else "off"
-        label = _trick_label(ts, i)
-        tid = ts.trick_ids[i] if i < len(ts.trick_ids) else "?"
-        kw = ts.trick_keywords[i] if i < len(ts.trick_keywords) and ts.trick_keywords[i] else None
-        kw_s = f"  keyword={kw}" if kw else ""
-        cfg = ts.trick_configs.get(tid)
-        cfg_s = f"  config={json.dumps(cfg)}" if cfg else ""
-        click.echo(f"  {mark:<4} {label:<24} {path}{kw_s}{cfg_s}")
 
 
 def _print_available_tricks(tricks: list[dict], json_out: bool = False) -> None:
@@ -360,6 +274,7 @@ def _print_available_tricks(tricks: list[dict], json_out: bool = False) -> None:
 
 
 MODEL_PARAMS = ("url", "model", "key")
+TRICK_PARAMS = ("enable", "keyword", "config")
 
 
 def _global_models() -> dict:
@@ -460,8 +375,8 @@ class _PetGroup(click.Group):
     """Group that lists commands in logical sections."""
 
     COMMAND_SECTIONS: list[tuple[str, list[str]]] = [
-        ("Tricksets", ["ls", "show", "new", "examples", "rename", "delete"]),
-        ("Tricks", ["tricks", "add", "rm", "enable", "disable", "reorder", "keyword", "config", "param", "filter"]),
+        ("Tricksets", ["ts", "new", "examples", "rename", "delete"]),
+        ("Tricks", ["tricks", "add", "rm", "reorder", "filter"]),
         ("Models", ["model"]),
         ("Lifecycle", ["install", "uninstall", "lifecycle"]),
         ("Logging", ["logfile", "loglevel"]),
@@ -469,13 +384,15 @@ class _PetGroup(click.Group):
     ]
 
     EXAMPLES = (
-        "pet ls                            # list all tricksets",
-        "pet show opencode                 # full detail for one trickset",
+        "pet ts                            # list all tricksets",
+        "pet ts opencode                   # full detail for one trickset",
         "pet new mykit -t json_mode -t kennel",
         "pet add mykit kennel              # runs the trick's install hook",
-        "pet enable mykit kennel           # activate a trick",
+        "pet ts mykit kennel enable false  # activate/deactivate a trick",
+        "pet ts mykit kennel keyword go    # set a prompt keyword override",
+        "pet ts mykit kennel config '{\"k\": 1}'   # set per-trick config",
         "pet model default url http://localhost:11434",
-        "pet -c another_petsitter_config.conf.json ls",
+        "pet -c another_petsitter_config.conf.json ts",
     )
 
     def format_commands(self, ctx, formatter) -> None:
@@ -529,36 +446,124 @@ def cli(config_arg: str | None) -> None:
             _override_config_path = p / "config.json"
 
 
-@cli.command("ls")
+@cli.command("ts")
 @click.argument("name", required=False)
-@click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
-def ls_cmd(name: str | None, json_out: bool) -> None:
-    """List tricksets (and their tricks). Give a name to inspect one."""
-    if name:
-        _print_trickset_detail(_load_ts(name), json_out=json_out)
-        return
-    files = _list_ts_files()
-    if not files:
-        click.echo("No tricksets yet. Create one with 'pet new <name>' or run 'pet examples'.")
-        return
-    if json_out:
-        click.echo(json.dumps([json.loads(f.read_text()) for f in files], indent=2))
-        return
-    for f in files:
-        ts = Trickset.load_from_file(str(f))
-        _print_trickset_list(ts)
-        click.echo("")
+@click.argument("trick", required=False)
+@click.argument("param", required=False)
+@click.argument("value", required=False)
+@click.option("--clear", is_flag=True, help="Clear trickset parameters (with 'ts <name> param')")
+def ts_cmd(name: str | None, trick: str | None, param: str | None, value: str | None,
+           clear: bool) -> None:
+    """View or set tricksets and their tricks.
 
+    \b
+      pet ts                            # list tricksets (JSON)
+      pet ts <name>                     # show a trickset (JSON)
+      pet ts <name> <trick>             # show a trick (JSON)
+      pet ts <name> <trick> <param>     # show a param value
+      pet ts <name> <trick> <param> <value>  # set a param value
 
-@cli.command("show")
-@click.argument("name", required=False)
-@click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
-def show_cmd(name: str | None, json_out: bool) -> None:
-    """Show full detail for a trickset (table of tricksets if no name)."""
+    \b
+    Trick params: enable (true/false), keyword, config (JSON object).
+    Trickset parameters use the reserved trick name 'param':
+      pet ts <name> param [<key> [<value>]]   # show/set/clear parameters
+    """
     if name is None:
-        _print_trickset_table(json_out=json_out)
+        data = {}
+        for f in _list_ts_files():
+            t = Trickset.load_from_file(str(f))
+            data[t.name] = t.to_dict()
+        click.echo(json.dumps(data, indent=2))
         return
-    _print_trickset_detail(_load_ts(name), json_out=json_out)
+
+    ts = _load_ts(name)
+
+    if trick is None:
+        click.echo(json.dumps(ts.to_dict(), indent=2))
+        return
+
+    if trick == "param":
+        if clear:
+            ts.parameters = {}
+            _save_ts(ts)
+            click.echo(f"parameters for '{name}': {{}}")
+            return
+        if param is None:
+            click.echo(json.dumps(ts.parameters, indent=2) if ts.parameters else "{ }")
+            return
+        if value is None:
+            if param not in ts.parameters:
+                click.echo("(unset)")
+                return
+            click.echo(_val_str(ts.parameters[param]))
+            return
+        ts.parameters[param] = _parse_value(value)
+        _save_ts(ts)
+        click.echo(f"parameters for '{name}': {json.dumps(ts.parameters)}")
+        return
+
+    idx = _find_trick_index(ts, trick)
+    if idx is None:
+        raise click.ClickException(f"trick '{trick}' not found in '{name}'")
+    tid = ts.trick_ids[idx] if idx < len(ts.trick_ids) else ""
+    entries = ts._trick_entries()
+    entry = entries[idx] if idx < len(entries) else {}
+
+    if param is None:
+        click.echo(json.dumps(entry, indent=2))
+        return
+
+    if param not in TRICK_PARAMS:
+        raise click.UsageError(f"unknown param '{param}' (expected one of {', '.join(TRICK_PARAMS)})")
+
+    if value is None:
+        if param == "enable":
+            val = ts.trick_enabled[idx] if idx < len(ts.trick_enabled) else True
+            click.echo("true" if val else "false")
+        elif param == "keyword":
+            kw = ts.trick_keywords[idx] if idx < len(ts.trick_keywords) else None
+            click.echo(kw if kw else "(unset)")
+        else:
+            cfg = ts.trick_configs.get(tid, {})
+            click.echo(json.dumps(cfg, indent=2) if cfg else "(unset)")
+        return
+
+    if param == "enable":
+        parsed = _parse_value(value)
+        if not isinstance(parsed, bool):
+            raise click.UsageError("enable expects true or false")
+        while len(ts.trick_enabled) <= idx:
+            ts.trick_enabled.append(True)
+        ts.trick_enabled[idx] = parsed
+        _save_ts(ts)
+        state = "enabled" if parsed else "disabled"
+        click.echo(f"{_trick_label(ts, idx)}: {state} in '{name}'")
+        return
+
+    if param == "keyword":
+        kw = value.strip() if value and value.strip() else None
+        while len(ts.trick_keywords) <= idx:
+            ts.trick_keywords.append(None)
+        ts.trick_keywords[idx] = kw
+        _save_ts(ts)
+        if kw:
+            click.echo(f"keyword for {_trick_label(ts, idx)} set to '{kw}'")
+        else:
+            click.echo(f"keyword override for {_trick_label(ts, idx)} cleared")
+        return
+
+    parsed = _parse_value(value)
+    if not isinstance(parsed, dict):
+        raise click.UsageError("config expects a JSON object, e.g. '{\"mcp_path\": \"/tmp/x\"}'")
+    ts.trick_configs[tid] = parsed
+    t = ts.tricks[idx] if idx < len(ts.tricks) else None
+    if t is not None:
+        try:
+            t.configure(parsed)
+        except Exception as e:
+            click.echo(f"Warning: configure() failed: {e}", err=True)
+    _save_ts(ts)
+    click.echo(f"config for {_trick_label(ts, idx)} saved: {json.dumps(parsed)}")
 
 
 @cli.command("tricks")
@@ -659,35 +664,6 @@ def rm_cmd(name: str, trick: str) -> None:
     click.echo(f"Removed {trick} from '{name}'")
 
 
-@cli.command("enable")
-@click.argument("name")
-@click.argument("trick")
-def enable_cmd(name: str, trick: str) -> None:
-    """Activate a trick in a trickset."""
-    _set_enabled(name, trick, True)
-
-
-@cli.command("disable")
-@click.argument("name")
-@click.argument("trick")
-def disable_cmd(name: str, trick: str) -> None:
-    """Deactivate a trick in a trickset."""
-    _set_enabled(name, trick, False)
-
-
-def _set_enabled(name: str, trick: str, enabled: bool) -> None:
-    ts = _load_ts(name)
-    idx = _find_trick_index(ts, trick)
-    if idx is None:
-        raise click.ClickException(f"Trick '{trick}' not found in '{name}'")
-    while len(ts.trick_enabled) <= idx:
-        ts.trick_enabled.append(True)
-    ts.trick_enabled[idx] = enabled
-    _save_ts(ts)
-    state = "enabled" if enabled else "disabled"
-    click.echo(f"{_trick_label(ts, idx)}: {state} in '{name}'")
-
-
 @cli.command("reorder")
 @click.argument("name")
 @click.argument("trick")
@@ -703,90 +679,6 @@ def reorder_cmd(name: str, trick: str, index: int) -> None:
         raise click.ClickException(f"Could not reorder '{trick}'")
     _save_ts(ts)
     click.echo(f"Moved {trick} to position {index} in '{name}'")
-
-
-@cli.command("keyword")
-@click.argument("name")
-@click.argument("trick")
-@click.argument("keyword", required=False)
-def keyword_cmd(name: str, trick: str, keyword: str | None) -> None:
-    """Set (or clear) a prompt keyword override for a trick."""
-    ts = _load_ts(name)
-    idx = _find_trick_index(ts, trick)
-    if idx is None:
-        raise click.ClickException(f"Trick '{trick}' not found in '{name}'")
-    kw = keyword.strip() if keyword and keyword.strip() else None
-    while len(ts.trick_keywords) <= idx:
-        ts.trick_keywords.append(None)
-    ts.trick_keywords[idx] = kw
-    _save_ts(ts)
-    if kw:
-        click.echo(f"keyword for {_trick_label(ts, idx)} set to '{kw}'")
-    else:
-        click.echo(f"keyword override for {_trick_label(ts, idx)} cleared")
-
-
-@cli.command("config")
-@click.argument("name")
-@click.argument("trick")
-@click.argument("settings", nargs=-1)
-def config_cmd(name: str, trick: str, settings: tuple[str, ...]) -> None:
-    """Set per-trick config fields: 'pet config <ts> <trick> key=value ...'."""
-    if not settings:
-        ts = _load_ts(name)
-        idx = _find_trick_index(ts, trick)
-        if idx is None:
-            raise click.ClickException(f"Trick '{trick}' not found in '{name}'")
-        tid = ts.trick_ids[idx]
-        cfg = ts.trick_configs.get(tid, {})
-        click.echo(json.dumps(cfg, indent=2) if cfg else "(no config set)")
-        return
-    ts = _load_ts(name)
-    idx = _find_trick_index(ts, trick)
-    if idx is None:
-        raise click.ClickException(f"Trick '{trick}' not found in '{name}'")
-    tid = ts.trick_ids[idx]
-    config = dict(ts.trick_configs.get(tid, {}))
-    fields = []
-    t = ts.tricks[idx] if idx < len(ts.tricks) else None
-    if t is not None:
-        fields = [f.get("key") for f in getattr(type(t), "config_fields", []) or []]
-    for setting in settings:
-        if "=" not in setting:
-            raise click.UsageError(f"Expected key=value, got '{setting}'")
-        k, _, v = setting.partition("=")
-        if fields and k not in fields:
-            click.echo(f"Note: '{k}' is not a declared config field for {_trick_label(ts, idx)}", err=True)
-        config[k] = _parse_value(v)
-    ts.trick_configs[tid] = config
-    if t is not None:
-        try:
-            t.configure(config)
-        except Exception as e:
-            click.echo(f"Warning: configure() failed: {e}", err=True)
-    _save_ts(ts)
-    click.echo(f"config for {_trick_label(ts, idx)} saved: {json.dumps(config)}")
-
-
-@cli.command("param")
-@click.argument("name")
-@click.argument("settings", nargs=-1)
-@click.option("--clear", is_flag=True, help="Remove all parameters")
-def param_cmd(name: str, settings: tuple[str, ...], clear: bool) -> None:
-    """Set trickset parameters: 'pet param <ts> key=value ...'."""
-    ts = _load_ts(name)
-    if not settings and not clear:
-        click.echo(json.dumps(ts.parameters, indent=2) if ts.parameters else "(no parameters set)")
-        return
-    if clear:
-        ts.parameters = {}
-    for setting in settings:
-        if "=" not in setting:
-            raise click.UsageError(f"Expected key=value, got '{setting}'")
-        k, _, v = setting.partition("=")
-        ts.parameters[k] = _parse_value(v)
-    _save_ts(ts)
-    click.echo(f"parameters for '{name}': {json.dumps(ts.parameters)}")
 
 
 @cli.command("filter")
