@@ -380,6 +380,7 @@ The method receives the text after `mycommand: ` and can return:
 
 ### Utility
 
+ * [Rules File](#rules-file) - Inject a shared AGENTS.md-style rules file into the system prompt
  * [Export It](#export-it) - Export conversation as llcat-compatible JSON
 
 ---
@@ -658,6 +659,28 @@ The exported JSON is a plain array of messages in OpenAI Chat Completions format
 ```
 
 Tool calls, reasoning (chain-of-thought), and tool results are all preserved in their standard formats. You can load the exported file directly with `llcat -c convo.json` or pipe it into any OpenAI-compatible tool.
+
+### Rules File
+
+[tricks/rules_file.py](tricks/rules_file.py)
+
+Reads a plain-markdown rules file (AGENTS.md / CLAUDE.md style) and injects its content into the system prompt on every request. Because petsitter sits in front of any tool pointed at it, the same rules file applies across opencode, Claude Code, Codex, etc. - write the rules once and keep every harness consistent.
+
+The rules path is configured per-trickset (the scope where petsitter config lives): set the `rules_path` config field on the trick via the dashboard, or switch files at runtime with the `rules` prompt keyword:
+
+```bash
+petsitter -u http://localhost:11434 -t tricks/rules_file.py
+```
+
+```
+User: (rules: /path/to/rules.md)
+Assistant: Loaded 123 chars of rules from /path/to/rules.md
+
+User: (rules)
+Assistant: Rules loaded from /path/to/rules.md (123 chars)
+```
+
+Content is cached and reloaded when the path changes, on startup, or on request. With no path configured the trick stays dormant, so requests pass through untouched.
 
 
 
