@@ -25,8 +25,13 @@ The commands mirror the dashboard tabs:
     pet reorder <trickset> <trick> <index>
     pet ts <trickset> param key value  # trickset-level parameters
     pet filter <trickset> [--x-title G] [--model G]
-    pet install <trick>             # run a trick's install() hook
-    pet uninstall <trick>           # run a trick's uninstall() hook
+    pet search [query]              # search the community trick index
+    pet cat <owner>/<name>          # read a trick's source before installing
+    pet install <owner>/<name>      # install a trick from the index
+    pet installed                   # list tricks installed from the index
+    pet publish <trick>             # publish a trick to the index
+    pet install <trick>             # run a local trick's install() hook
+    pet uninstall <trick>           # run a local trick's uninstall() hook
     pet lifecycle <trick> <hook>
     pet model [name] [param] [value]  # show or set a model entry
     pet logfile <trickset> [path]
@@ -43,6 +48,7 @@ from typing import Any
 
 import click
 
+from src import registry
 from src.loader import load_trick_from_path
 from src.trick import Trick
 from src.trickset import SCHEMA, Trickset
@@ -183,11 +189,14 @@ def _available_tricks() -> list[dict]:
 def _resolve_trick_spec(spec: str) -> str:
     """Resolve a trick name/path to a loadable ``.py`` path.
 
-    ``json_mode`` -> ``tricks/json_mode.py``; paths pass through unchanged.
+    ``json_mode`` -> ``tricks/json_mode.py``; paths and ``pkg:`` specs pass
+    through unchanged.
     """
     s = spec.strip()
     if not s:
         raise click.UsageError("trick path is empty")
+    if registry.parse_pkg_spec(s) is not None:
+        return s
     if s.endswith(".py"):
         return s
     for base in ("tricks", str(BUILTIN_TRICKS_DIR)):
@@ -198,6 +207,12 @@ def _resolve_trick_spec(spec: str) -> str:
 
 
 def _trick_exists(path: str) -> bool:
+    if registry.parse_pkg_spec(path) is not None:
+        try:
+            from src.loader import resolve_path
+            return resolve_path(path).exists()
+        except FileNotFoundError:
+            return False
     if Path(path).exists():
         return True
     if (REPO_ROOT / path).exists():
@@ -700,16 +715,268 @@ def filter_cmd(name: str, x_title: str | None, model_filter: str | None) -> None
 
 @cli.command("install")
 @click.argument("trick")
-def install_cmd(trick: str) -> None:
-    """Run a trick's install() hook (e.g. 'pet install swapharness')."""
-    _run_lifecycle(_resolve_trick_spec(trick), "install")
+@click.option("--trickset", "ts_name", default=None,
+              help="Also add the installed trick to this trickset")
+@click.option("--force", is_flag=True, help="Re-download even if already installed")
+def install_cmd(trick: str, ts_name: str | None, force: bool) -> None:
+    """Install a trick from the community index, or run a local trick's install() hook.
+
+    \b
+      pet install dana/ollama-ctx        # fetch from the index
+      pet install dana/ollama-ctx --trickset opencode
+      pet install swapharness            # run the local trick's install() hook
+
+    A name containing a slash is a package; a bare name is a local trick.
+    """
+    if "/" not in trick or trick.endswith(".py"):
+        _run_lifecycle(_resolve_trick_spec(trick), "install")
+        return
+
+    name, _, want_version = trick.partition("@")
+    entry = _resolve_entry(name, want_version or None)
+    try:
+        path, fresh = registry.install(entry, config_dir(), force=force)
+    except registry.RegistryError as e:
+        raise click.ClickException(str(e))
+
+    spec = registry.pkg_spec(entry["name"], entry["version"])
+    verb = "installed" if fresh else "already installed"
+    click.echo(f"{verb} {entry['name']}@{entry['version']}")
+    click.echo(f"  {path}")
+    if entry.get("brief"):
+        click.echo(f"  {entry['brief']}")
+
+    if ts_name:
+        ts = _load_ts(ts_name)
+        if spec in ts.trick_paths:
+            click.echo(f"  already in trickset '{ts_name}'")
+        else:
+            ts.add_trick(spec)
+            _save_ts(ts)
+            click.echo(f"  added to trickset '{ts_name}'")
+        if fresh:
+            _run_lifecycle(spec, "install")
+    else:
+        click.echo(f"\nAdd it to a trickset with:\n  pet add <trickset> {spec}")
 
 
 @cli.command("uninstall")
 @click.argument("trick")
-def uninstall_cmd(trick: str) -> None:
-    """Run a trick's uninstall() hook."""
-    _run_lifecycle(_resolve_trick_spec(trick), "uninstall")
+@click.option("--version", default=None, help="Remove only this version")
+def uninstall_cmd(trick: str, version: str | None) -> None:
+    """Remove an installed package, or run a local trick's uninstall() hook."""
+    if "/" not in trick or trick.endswith(".py"):
+        _run_lifecycle(_resolve_trick_spec(trick), "uninstall")
+        return
+
+    name, _, at_version = trick.partition("@")
+    version = version or at_version or None
+    try:
+        removed = registry.uninstall(config_dir(), name, version)
+    except registry.RegistryError as e:
+        raise click.ClickException(str(e))
+    if not removed:
+        raise click.ClickException(f"{name} is not installed")
+    for p in removed:
+        click.echo(f"removed {p}")
+
+    still = [f.name for f in _list_ts_files()
+             if any(registry.parse_pkg_spec(t) and
+                    registry.parse_pkg_spec(t)[0] == name
+                    for t in Trickset.load_from_file(str(f)).trick_paths)]
+    if still:
+        click.echo(f"\nStill referenced by: {', '.join(still)}")
+
+
+@cli.command("search")
+@click.argument("query", required=False, default="")
+@click.option("--all", "show_all", is_flag=True, help="Include unfeatured tricks")
+@click.option("--refresh", is_flag=True, help="Bypass the cached index")
+@click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
+def search_cmd(query: str, show_all: bool, refresh: bool, json_out: bool) -> None:
+    """Search the community trick index."""
+    index = _fetch_index(refresh)
+    results = registry.search(index, query, featured_only=not show_all and not query)
+
+    if json_out:
+        click.echo(json.dumps(results, indent=2))
+        return
+    if not results:
+        click.echo(f"nothing matching '{query}'" if query else "the index is empty")
+        return
+
+    installed = {i["name"]: i["version"] for i in registry.list_installed(config_dir())}
+    for e in results:
+        marks = []
+        if e.get("featured"):
+            marks.append("★")
+        if e["name"] in installed:
+            marks.append("installed" if installed[e["name"]] == e["version"] else "update")
+        tag = ("  [" + " ".join(marks) + "]") if marks else ""
+        click.echo(f"{e['name']}@{e['version']}{tag}")
+        if e.get("brief"):
+            click.echo(f"    {e['brief']}")
+        click.echo(f"    ⭐ {e.get('stars', 0)}  {e.get('repo', '')}")
+
+    if not show_all and not query:
+        click.echo(f"\n{len(results)} featured · pet search --all for everything")
+
+
+@cli.command("cat")
+@click.argument("name")
+@click.option("--refresh", is_flag=True, help="Bypass the cached index")
+def cat_cmd(name: str, refresh: bool) -> None:
+    """Print a trick's source without installing it.
+
+    Tricks are one file and usually short. Reading one before you run it is
+    cheap in a way that reading a dependency tree is not.
+    """
+    pkg, _, want_version = name.partition("@")
+    installed = registry.installed_path(config_dir(), pkg, want_version) if want_version else None
+    if installed and installed.exists():
+        click.echo(installed.read_text())
+        return
+    entry = _resolve_entry(pkg, want_version or None, refresh=refresh)
+    try:
+        click.echo(registry._fetch(entry["url"], timeout=30).decode("utf-8", "replace"))
+    except registry.RegistryError as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command("installed")
+@click.option("--json", "json_out", is_flag=True, help="Emit raw JSON")
+def installed_cmd(json_out: bool) -> None:
+    """List tricks installed from the index."""
+    items = registry.list_installed(config_dir())
+    if json_out:
+        click.echo(json.dumps(items, indent=2))
+        return
+    if not items:
+        click.echo("nothing installed from the index yet — try 'pet search'")
+        return
+    for i in items:
+        click.echo(f"{i['spec']}")
+        if i.get("brief"):
+            click.echo(f"    {i['brief']}")
+        click.echo(f"    {i['path']}")
+
+
+@cli.command("publish")
+@click.argument("trick")
+@click.option("--repo", default=None,
+              help="Existing GitHub repo to push to (default: create one)")
+@click.option("--dry-run", is_flag=True, help="Show what would happen and stop")
+def publish_cmd(trick: str, repo: str | None, dry_run: bool) -> None:
+    """Publish a trick to the community index.
+
+    \b
+    Publishing is: push a public repo, add the 'petsitter-trick' topic. The
+    hourly crawler does the rest — there is no server, no account, and nothing
+    to approve. This command just runs the git and gh steps for you.
+    """
+    import shutil
+    import subprocess
+
+    path = Path(_resolve_trick_spec(trick))
+    if not path.exists():
+        raise click.ClickException(f"no such file: {path}")
+
+    meta = _introspect(path)
+    version = _trick_attr(path, "__version__")
+    problems = []
+    if not version:
+        problems.append(
+            "no __version__ on the Trick subclass — add e.g. __version__ = \"0.1.0\""
+        )
+    if not meta.get("brief"):
+        problems.append("no __brief__ — the index shows it as the one-line description")
+    if problems:
+        for p in problems:
+            click.echo(f"  ✗ {p}")
+        if not meta.get("brief") and version:
+            click.confirm("Publish without a brief?", abort=True)
+        else:
+            raise click.ClickException("cannot publish yet")
+
+    owner_slug = registry.slugify_stem(path.stem)
+    click.echo(f"  file     {path}")
+    click.echo(f"  version  {version}")
+    click.echo(f"  brief    {meta.get('brief') or '(none)'}")
+    click.echo(f"  name     <your-github-login>/{owner_slug}")
+
+    if not shutil.which("gh"):
+        click.echo(
+            "\ngh is not installed, so do it by hand:\n"
+            "  1. push this file to a public GitHub repo\n"
+            "  2. gh repo edit --add-topic petsitter-trick\n"
+            "It'll be in the index within the hour."
+        )
+        return
+
+    if dry_run:
+        click.echo("\n(dry run, stopping here)")
+        return
+
+    target = repo or click.prompt("GitHub repo (owner/name)",
+                                  default=f"petsitter-{owner_slug}")
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        click.echo(f"  $ {' '.join(args)}")
+        return subprocess.run(args, capture_output=True, text=True)
+
+    exists = run("gh", "repo", "view", target).returncode == 0
+    if not exists:
+        r = run("gh", "repo", "create", target, "--public",
+                "--description", meta.get("brief") or "A petsitter trick")
+        if r.returncode != 0:
+            raise click.ClickException(r.stderr.strip() or "gh repo create failed")
+
+    r = run("gh", "repo", "edit", target, "--add-topic", "petsitter-trick")
+    if r.returncode != 0:
+        raise click.ClickException(r.stderr.strip() or "could not add the topic")
+
+    click.echo(
+        f"\n✓ {target} is tagged petsitter-trick\n"
+        f"  Push {path.name} to it if you haven't, then it lands in the index\n"
+        f"  within the hour as <your-login>/{owner_slug}."
+    )
+
+
+def _fetch_index(refresh: bool = False) -> dict:
+    try:
+        return registry.fetch_index(config_dir(), load_config(), force=refresh)
+    except registry.RegistryError as e:
+        raise click.ClickException(str(e))
+
+
+def _resolve_entry(name: str, version: str | None, refresh: bool = False) -> dict:
+    index = _fetch_index(refresh)
+    try:
+        return registry.resolve(index, name, version)
+    except registry.RegistryError as e:
+        raise click.ClickException(str(e))
+
+
+def _trick_attr(path: Path, attr: str) -> str | None:
+    """Read one class attribute out of a trick file without importing it."""
+    import ast
+    try:
+        tree = ast.parse(path.read_text())
+    except (SyntaxError, OSError):
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for stmt in node.body:
+            if isinstance(stmt, ast.Assign):
+                for t in stmt.targets:
+                    if isinstance(t, ast.Name) and t.id == attr:
+                        try:
+                            v = ast.literal_eval(stmt.value)
+                        except (ValueError, SyntaxError):
+                            return None
+                        return v if isinstance(v, str) else None
+    return None
 
 
 @cli.command("lifecycle")

@@ -35,6 +35,7 @@
 
 <div class="tabs">
 <div class="tab active" data-tab="tricks" onclick="switchTab('tricks')">Tricks</div>
+<div class="tab" data-tab="browse" onclick="switchTab('browse')">Browse</div>
 <div class="tab" data-tab="models" onclick="switchTab('models')">Models</div>
 <div class="tab" data-tab="agents" onclick="switchTab('agents')">Agents</div>
 <div class="tab" data-tab="logs" onclick="switchTab('logs')">Logs</div>
@@ -80,6 +81,36 @@
 <button class="btn btn-neutral" onclick="loadCustomTrick()" title="Load custom trick from path">Add</button>
 </div>
 </div>
+</div>
+</div>
+
+<!-- === BROWSE TAB === -->
+<div class="tab-pane" id="tab-browse">
+<div class="card">
+<div class="card-title">
+<h2>Community Tricks</h2>
+<div class="card-tools">
+<input type="text" id="browse-search" class="input-sm" placeholder="Search..." title="Search the community index by name, description, or keyword" oninput="browseSearchChanged()">
+<div class="btn-group">
+<button class="btn btn-sm btn-sort active" id="browse-featured-btn" onclick="setBrowseScope(false)" title="Show featured tricks only">Featured</button>
+<button class="btn btn-sm btn-sort" id="browse-all-btn" onclick="setBrowseScope(true)" title="Show every trick in the index">All</button>
+</div>
+<button class="btn btn-sm btn-secondary" onclick="fetchBrowse(true)" title="Re-fetch the index now">Refresh</button>
+</div>
+</div>
+<div class="section-desc">Tricks published by anyone, indexed hourly from public GitHub repos tagged <code>petsitter-trick</code>. No server, no accounts. Installing adds the trick to the trickset selected above.</div>
+<div id="browse-list"><div class="loader">Loading...</div></div>
+<div class="browse-status" id="browse-status"></div>
+</div>
+<div class="card" id="browse-source-card" style="display:none">
+<div class="card-title">
+<h2 id="browse-source-title">Source</h2>
+<div class="card-tools">
+<button class="btn btn-sm btn-secondary" onclick="closeBrowseSource()" title="Close">Close</button>
+</div>
+</div>
+<div class="section-desc">Read before you run. A trick executes inside petsitter with your API keys, the same way a pip package executes inside your interpreter.</div>
+<pre class="browse-source"><code id="browse-source-body" class="language-python"></code></pre>
 </div>
 </div>
 
@@ -206,6 +237,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
   if (name === 'help') loadHelpContent();
+  if (name === 'browse') fetchBrowse();
   if (name === 'models') renderModels(selectedTrickset, _cachedConfiguredModels);
   if (name === 'logs') {
     populateTsLogSelect();
@@ -282,7 +314,7 @@ async function renderMermaidDiagrams() {
 window.addEventListener('hashchange', function() {
   var p = parseHash();
   switchTab(p.tab);
-  if (p.ts !== '_default' || p.tab === 'tricks' || p.tab === 'models' || p.tab === 'settings') {
+  if (p.ts !== '_default' || p.tab === 'tricks' || p.tab === 'browse' || p.tab === 'models' || p.tab === 'settings') {
     selectedTrickset = p.ts;
     if (document.querySelector('#ts-pills .pill[data-name="' + p.ts + '"]')) switchTrickset(p.ts);
   }
@@ -434,6 +466,116 @@ async function loadTrick(path) {
     showToast('Loaded: ' + d.name);
     fetchTricks(); fetchAvailable(); fetchModels();
   } catch(e) { showToast(e.message, true); }
+}
+
+// ---- browse (community index) ----
+let browseAll = false;
+let browseQuery = '';
+let _browseTimer = null;
+let _browseLoaded = false;
+
+function browseSearchChanged() {
+  browseQuery = document.getElementById('browse-search').value;
+  clearTimeout(_browseTimer);
+  _browseTimer = setTimeout(() => fetchBrowse(), 180);
+}
+
+function setBrowseScope(all) {
+  browseAll = all;
+  document.getElementById('browse-featured-btn').classList.toggle('active', !all);
+  document.getElementById('browse-all-btn').classList.toggle('active', all);
+  fetchBrowse();
+}
+
+async function fetchBrowse(refresh) {
+  const el = document.getElementById('browse-list');
+  const status = document.getElementById('browse-status');
+  if (!_browseLoaded || refresh) el.innerHTML = '<div class="loader">Fetching the index...</div>';
+  _browseLoaded = true;
+  const params = new URLSearchParams();
+  if (browseQuery) params.set('q', browseQuery);
+  if (browseAll) params.set('all', '1');
+  if (refresh) params.set('refresh', '1');
+  try {
+    const d = await fetchJSON('/api/registry?' + params.toString());
+    renderBrowse(d);
+    const when = d.generated ? ' · index built ' + escapeHtml(d.generated) : '';
+    status.innerHTML = `${d.tricks.length} shown of ${d.total} in the index${when}`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Couldn't reach the index.<br><span class="path">${escapeHtml(e.message)}</span></div>`;
+    status.textContent = '';
+  }
+}
+
+function renderBrowse(d) {
+  const el = document.getElementById('browse-list');
+  if (!d.tricks.length) {
+    el.innerHTML = browseQuery
+      ? `<div class="empty">Nothing matching &ldquo;${escapeHtml(browseQuery)}&rdquo;${browseAll ? '' : ' among featured tricks — try All'}</div>`
+      : '<div class="empty">The index is empty.</div>';
+    return;
+  }
+  el.innerHTML = d.tricks.map(t => {
+    const nm = escapeHtml(t.display_name || t.name);
+    const pkg = escapeHtml(t.name + '@' + t.version);
+    const brief = t.brief ? `<div class="brief">${escapeHtml(t.brief)}</div>` : '';
+    const badges = (t.keywords || []).map(k => `<span class="badge badge-kw">${escapeHtml(k)}</span>`).join('');
+    const trigger = t.prompt_keyword ? `<span class="trigger-word">${escapeHtml(t.prompt_keyword)}</span>` : '';
+    const star = t.featured ? '<span class="badge badge-kw" title="Featured">&#9733;</span>' : '';
+    const repo = t.repo ? `<a class="path" href="${escapeHtml(t.repo)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t.repo.replace('https://github.com/',''))}</a>` : '';
+    const meta = `<div class="trick-meta">${star}${badges}${trigger}<span class="path">&#9733; ${t.stars || 0}</span>${repo}</div>`;
+    const a = JSON.stringify(t.name), v = JSON.stringify(t.version);
+
+    let action;
+    if (t.installed === t.version) {
+      action = `<button class="btn btn-neutral btn-sm" onclick="addInstalled(${a},${v})" title="Add this installed trick to the selected trickset">Add</button>`;
+    } else if (t.installed) {
+      action = `<button class="btn btn-neutral btn-sm" onclick="installFromIndex(${a},${v})" title="Installed ${escapeHtml(t.installed)} — update to ${escapeHtml(t.version)}">Update</button>`;
+    } else {
+      action = `<button class="btn btn-neutral btn-sm" onclick="installFromIndex(${a},${v})" title="Download, verify the checksum, and add to the selected trickset">Install</button>`;
+    }
+    const read = `<button class="btn btn-secondary btn-sm" onclick="viewBrowseSource(${a},${v})" title="Read the source without installing">Read</button>`;
+
+    return `<div class="avail-item"><div><span class="name">${nm}</span><span class="path">${pkg}</span>${brief}${meta}</div><div class="browse-actions">${read}${action}</div></div>`;
+  }).join('');
+}
+
+async function installFromIndex(name, version) {
+  try {
+    const d = await fetchJSON('/api/registry/install', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, version, trickset: selectedTrickset})
+    });
+    showToast(d.fresh ? `Installed ${name}@${version}` : `Added ${name}@${version}`);
+    fetchBrowse(); fetchTricks(); fetchModels();
+  } catch(e) { showToast(e.message, true); }
+}
+
+async function addInstalled(name, version) {
+  await loadTrick('pkg:' + name + '@' + version);
+  fetchBrowse();
+}
+
+async function viewBrowseSource(name, version) {
+  const card = document.getElementById('browse-source-card');
+  const body = document.getElementById('browse-source-body');
+  document.getElementById('browse-source-title').textContent = name + '@' + version;
+  body.textContent = 'Loading...';
+  card.style.display = '';
+  card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  try {
+    const r = await fetch('/api/registry/source?name=' + encodeURIComponent(name) + '&version=' + encodeURIComponent(version));
+    if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error || r.statusText); }
+    body.textContent = await r.text();
+    body.className = 'language-python';
+    if (window.hljs) hljs.highlightElement(body);
+  } catch(e) {
+    body.textContent = "Couldn't fetch the source: " + e.message;
+  }
+}
+
+function closeBrowseSource() {
+  document.getElementById('browse-source-card').style.display = 'none';
 }
 
 async function loadCustomTrick() {

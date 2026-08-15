@@ -921,3 +921,22 @@ header .nav a:hover { background: #1a2a4d; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ---- browse (community index) ---- */
+.browse-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.avail-item a.path { text-decoration: none; }
+.avail-item a.path:hover { color: #6b8299; text-decoration: underline; }
+.browse-status {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #4a6572;
+}
+.browse-source {
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+}

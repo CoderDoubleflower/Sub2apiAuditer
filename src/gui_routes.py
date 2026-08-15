@@ -128,6 +128,90 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
         return JSONResponse(result)
     app.add_route("/api/tricks/available", gui_tricks_available, methods=["GET"])
 
+    # ---- community index -------------------------------------------------
+    # There is no registry server; these routes read the static index.json
+    # through src.registry so the browser doesn't have to deal with CORS or
+    # duplicate the cache.
+
+    def _registry_config_dir() -> Path:
+        if _config_path:
+            return Path(_config_path).parent
+        return Path.home() / ".config" / "petsitter"
+
+    async def gui_registry(request: Request) -> Response:
+        from src import registry
+        q = request.query_params.get("q", "")
+        show_all = request.query_params.get("all") in ("1", "true")
+        refresh = request.query_params.get("refresh") in ("1", "true")
+        cfg_dir = _registry_config_dir()
+        try:
+            index = await asyncio.to_thread(
+                registry.fetch_index, cfg_dir, None, refresh
+            )
+        except registry.RegistryError as e:
+            return JSONResponse({"error": str(e), "tricks": []}, status_code=502)
+        results = registry.search(index, q, featured_only=not show_all and not q)
+        installed = {i["name"]: i["version"]
+                     for i in registry.list_installed(cfg_dir)}
+        for e in results:
+            e = e  # entries are plain dicts from the cached index
+            e["installed"] = installed.get(e["name"])
+        return JSONResponse({
+            "generated": index.get("generated", ""),
+            "total": index.get("count", 0),
+            "index_url": registry.index_url(None),
+            "tricks": results,
+        })
+    app.add_route("/api/registry", gui_registry, methods=["GET"])
+
+    async def gui_registry_install(request: Request) -> Response:
+        from src import registry
+        data = await request.json()
+        name = (data.get("name") or "").strip()
+        version = data.get("version") or None
+        ts_name = data.get("trickset")
+        cfg_dir = _registry_config_dir()
+        try:
+            index = await asyncio.to_thread(registry.fetch_index, cfg_dir, None, False)
+            entry = registry.resolve(index, name, version)
+            path, fresh = await asyncio.to_thread(registry.install, entry, cfg_dir, False)
+        except registry.RegistryError as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+        spec = registry.pkg_spec(entry["name"], entry["version"])
+        result = {"success": True, "spec": spec, "path": str(path), "fresh": fresh}
+        if ts_name:
+            try:
+                trick = handler.add_trick(spec, ts_name=ts_name)
+                result["loaded"] = type(trick).__name__
+            except Exception as e:
+                # It's on disk; only the wiring failed, and saying which is
+                # the difference between "retry" and "report a bug".
+                result["success"] = False
+                result["error"] = f"installed to {path}, but adding to '{ts_name}' failed: {e}"
+                return JSONResponse(result, status_code=400)
+        return JSONResponse(result)
+    app.add_route("/api/registry/install", gui_registry_install, methods=["POST"])
+
+    async def gui_registry_source(request: Request) -> Response:
+        """Source of a trick, for the Read button. Installed copy if we have it."""
+        from src import registry
+        name = request.query_params.get("name", "")
+        version = request.query_params.get("version", "")
+        cfg_dir = _registry_config_dir()
+        try:
+            if version:
+                local = registry.installed_path(cfg_dir, name, version)
+                if local.exists():
+                    return Response(content=local.read_text(), media_type="text/plain")
+            index = await asyncio.to_thread(registry.fetch_index, cfg_dir, None, False)
+            entry = registry.resolve(index, name, version or None)
+            blob = await asyncio.to_thread(registry._fetch, entry["url"], 30)
+            return Response(content=blob.decode("utf-8", "replace"), media_type="text/plain")
+        except registry.RegistryError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+    app.add_route("/api/registry/source", gui_registry_source, methods=["GET"])
+
     async def gui_tricks_load(request: Request) -> Response:
         data = await request.json()
         path = data.get("path", "")
