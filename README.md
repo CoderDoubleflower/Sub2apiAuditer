@@ -5,7 +5,7 @@
 
 **Petsitter** is an OpenAI-compatible proxy that layers smart harnesses on top of language models to give them capabilities they don't natively have. It also makes finicky behaviors reliable and dependable.
 
-You install it, point it at a model, load a few example tricks, and suddenly things that model couldn't do before - tool calling, structured JSON, multi-step reasoning - start working. Then you think: *"oh, I could make it do X"* - and you write your own trick.
+You install it, point it at a model, load a few example tricks, and suddenly things that model couldn't do before such as tool calling, structured JSON, multi-step reasoning start working. You can also protect secrets, have memory, share server instances across harnesses, and extend the tool trivially.
 
 The built-in tricks are starting points. Tweak them, combine them, or use them as a reference to build something entirely different. Petsitter isn't a turnkey product; it's a kit.
 
@@ -373,7 +373,7 @@ def install(self):
 
 ### `startup()`
 
-Called when the first concurrent request starts using this trick (the internal run counter goes 0→1). Use for per-session initialization - open connections, preload models:
+Called when the first concurrent request starts using this trick (the internal run counter goes 0→1). Use for per-session initialization. It open connections and preloads models:
 
 ```python
 def startup(self):
@@ -382,7 +382,7 @@ def startup(self):
 
 ### `shutdown()`
 
-Called when the last concurrent request finishes using this trick (run counter goes 1→0), or during server shutdown for all active tricks. Use for per-session cleanup - close connections, release resources:
+Called when the last concurrent request finishes using this trick (run counter goes 1→0), or during server shutdown for all active tricks. Use for per-session cleanup. It closes connections and release resources:
 
 ```python
 def shutdown(self):
