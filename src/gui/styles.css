@@ -947,3 +947,13 @@ header .nav a:hover { background: #1a2a4d; }
   background: #12122a;
 }
 .source-panel .section-desc { margin: 6px 0 8px; }
+.avail-more {
+  padding: 6px 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b8299;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 3px;
+}
+.avail-more:hover { color: #c8d6e5; background: #12122a; }
