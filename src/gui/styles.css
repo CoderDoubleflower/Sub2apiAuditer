@@ -65,28 +65,32 @@ header .nav a:hover { background: #1a2a4d; }
 /* tabs */
 .tabs {
   display: flex;
-  margin-bottom: 12px;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #1e2a3a;
-  width: fit-content;
+  gap: 2px;
+  margin-bottom: 14px;
+  /* the rule runs the full width; the active tab's accent sits on top of it */
+  border-bottom: 1px solid #1e2a3a;
 }
 
 .tab {
-  padding: 7px 20px;
+  padding: 8px 18px 7px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: #5a7a95;
-  background: #12122a;
+  background: none;
   border: none;
-  border-right: 1px solid #1e2a3a;
-  transition: background .12s;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 4px 4px 0 0;
+  transition: color .12s, background .12s, border-color .12s;
 }
 
-.tab:last-child { border-right: none; }
-.tab:hover { background: #1a1a3a; }
-.tab.active { color: #8ab4ff; background: #1a2a4d; }
+.tab:hover { color: #8fa8bf; background: #14142c; }
+.tab.active {
+  color: #8ab4ff;
+  background: none;
+  border-bottom-color: #8ab4ff;
+}
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
 
@@ -957,3 +961,21 @@ header .nav a:hover { background: #1a2a4d; }
   border-radius: 3px;
 }
 .avail-more:hover { color: #c8d6e5; background: #12122a; }
+
+/* drag affordance for reorderable loaded tricks */
+.trick-item .grip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  margin: -8px 6px -8px -4px;
+  padding: 0 2px;
+  cursor: grab;
+  color: #3d4f63;
+  transition: color .12s ease;
+}
+.trick-item .grip svg { fill: currentColor; display: block; }
+.trick-item:hover .grip { color: #6b8299; }
+.trick-item .grip:hover { color: #a8bccf; }
+.trick-item .grip:active,
+.trick-item.dragging .grip { cursor: grabbing; }
