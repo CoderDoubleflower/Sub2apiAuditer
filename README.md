@@ -25,6 +25,8 @@ Tricks also have lifecycle hooks (`install`, `startup`, `shutdown`, `uninstall`)
 
 A trick can be as simple as appending a sentence to the system prompt, or as involved as routing subtasks to three different models in parallel. There's a GUI at `/` with tabs for managing tricksets and their tricks (Tricks / Models / Agents), a live activity log (Logs), and per-trickset logging configuration (Settings).
 
+The Tricks tab lists your local `tricks/*.py` alongside [community tricks](#community-tricks) published by other people, and the speech-bubble button in the header opens a [Try It panel](#try-it) that sends a message through the pipeline so you can watch which tricks fire.
+
 You can also edit tricks, reorder them, disable, add new ones, and filter them:
 <img alt="2026-07-04_15-13" src="https://github.com/user-attachments/assets/c623f29a-8724-4fdb-bc6d-a76c3022183a" />
 
@@ -114,6 +116,107 @@ It works on `/v1/chat/completions` and `/p/<host>/.../chat/completions`, and hon
 | `--config` | `-c` | Path to a config file (e.g., `another_petsitter_config.conf.json`) or a config directory. Defaults to `$PET_CONFIG_DIR` if set, else `~/.config/petsitter`. Tricksets live in `<base>/tricksets`. |
 | `--listen` | `-l` | Host:port to listen on (default: `localhost:8080`) |
 | `--version` | `-v` | Show version and exit |
+
+### `pet` subcommands
+
+`pet` edits the same JSON files the dashboard writes, so the two always agree and neither needs the server running. `pet --help` lists everything; the ones worth knowing:
+
+| Command | What it does |
+|---------|--------------|
+| `pet ts` | List tricksets; `pet ts <name>` for detail, `pet ts <name> <trick> <param> <value>` to set one |
+| `pet tricks` | List available local trick modules |
+| `pet add` / `pet rm` | Add or remove a trick from a trickset |
+| `pet search [query]` | Search the [community index](#community-tricks) |
+| `pet cat <owner>/<name>` | Print a community trick's source without installing it |
+| `pet install <owner>/<name>` | Install from the index (a bare name instead runs a local trick's `install()` hook) |
+| `pet installed` | List tricks installed from the index |
+| `pet publish <trick>` | Publish a trick to the index |
+| `pet model` | Show or set model config |
+| `pet agents` | List, register, unregister harness agents |
+
+## Community Tricks
+
+Tricks are shareable. Anyone can publish one, and they show up in everyone's dashboard within the hour — in the **Available Tricks** list on the Tricks tab, next to your local ones.
+
+**There is no registry server.** The index is a static `index.json` in [day50-dev/tricks](https://github.com/day50-dev/tricks), rebuilt hourly by a GitHub Action that crawls public repos carrying the topic `petsitter-trick`. No accounts, no approval queue, nothing to keep running.
+
+### Installing
+
+From the dashboard, hit **Install** on any community entry — it downloads, verifies the checksum, and adds it to the selected trickset. Or from the CLI:
+
+```bash
+pet search tool                  # search the index
+pet cat dana/ollama-ctx          # read the source first
+pet install dana/ollama-ctx --trickset opencode
+```
+
+Installed tricks land at `<config>/tricks/<owner>/<slug>/<version>.py`, and tricksets refer to them with a `pkg:` spec rather than a path:
+
+```json
+{
+  "name": "my-trickset",
+  "tricks": [
+    "tricks/json_mode.py",
+    "pkg:dana/ollama-ctx@0.1.0"
+  ]
+}
+```
+
+The `pkg:` form is what makes a trickset portable — the same JSON works on another machine, where a `/home/you/...` path would not. Omit `@version` and the newest installed version is used.
+
+Point at a different index (a private one for your org, say) with `PET_REGISTRY_INDEX`, either an `https://` or a `file://` URL. The index is cached for an hour; a stale cache is preferred to an error, so the list still works offline.
+
+### Publishing
+
+Three steps, no ceremony:
+
+1. **Put a `__version__` on your Trick subclass.** Semver, bumped whenever the file changes.
+2. **Push it to a public GitHub repo** — root or a `tricks/` directory, as many tricks per repo as you like.
+3. **Add the topic:** `gh repo edit --add-topic petsitter-trick`
+
+`pet publish tricks/my_trick.py` runs steps 2 and 3 for you and checks step 1 first.
+
+```python
+class OllamaCtxTrick(Trick):
+    __version__ = "0.1.0"
+    __brief__ = "Clamps num_ctx for ollama backends"
+    __display_name__ = "Ollama Context Clamp"
+```
+
+Everything in the index is derived from that file and the GitHub API — you never type a checksum, a date, or an author:
+
+| Field | Where it comes from |
+|-------|---------------------|
+| `name` | your GitHub login + the filename, e.g. `dana/ollama-ctx` |
+| `version` | `__version__` |
+| `brief`, `display_name` | `__brief__`, `__display_name__` (else the class name) |
+| `keywords`, `prompt_keyword`, `required_models` | the class attributes |
+| `url` | pinned to a commit SHA, so the bytes can never change under someone |
+| `sha256` | computed from those bytes; `pet install` refuses on a mismatch |
+| `repo`, `stars`, `license`, `updated` | the GitHub API |
+
+Names can't collide between authors, because your GitHub login is the namespace — so there is nothing for anyone to adjudicate and publishing needs no permission. The crawler parses candidate files with `ast`; it never imports or executes them.
+
+To update, bump `__version__` and push. To unpublish, delete the repo or drop the topic — anyone who already installed it keeps their copy, since the file is on their disk.
+
+`featured.json` in the index repo controls which tricks appear before you click **Show N more community tricks**. It's promotion, not permission: nothing is ever kept out of the index for being unfeatured.
+
+> A trick is Python that runs inside petsitter with your API keys, the same trust model as any pip package. `pet cat` and the dashboard's **Read** button exist because a trick is one short file — a good deal more reviewable than the average dependency.
+
+## Try It
+
+The speech-bubble button in the header opens a conversation panel docked over the dashboard. Type a message and it goes through `chat_completions()` exactly as a real client's would — same trickset matching, same keyword gating, same hooks, same upstream. It is not a simulation.
+
+What comes back with each reply:
+
+- **A pill per trick.** Bright means it changed something, and the tooltip lists the stages it ran (`Ran: system_prompt, post_hook`). Dim means it was loaded but did nothing.
+- **Why a trick stayed quiet.** A keyword-gated trick that didn't fire reads `Did not fire — needs keyword: banana`.
+- **Timing and tokens**, next to the trickset that handled it.
+- **The rows light up.** Tricks that actually did something pulse in the Loaded Tricks list, so you can watch a reorder or a config change take effect.
+
+Drag the panel by its header to move it, drag its corner to resize, and `⇲` snaps it back to the bottom right. Whether it's open, where it sits, and the conversation itself are all remembered across refreshes.
+
+It targets whichever trickset is selected in the pill bar, so switching tricksets switches what you're testing.
 
 ## Creating Custom Tricks
 ```mermaid
@@ -325,7 +428,7 @@ The syntax is forgiving - a registered keyword can be triggered any of these way
 - `(swapharness:)` or `(swapharness)` - empty request (e.g. list the harness tree)
 - just `swapharness` - a bare keyword alone in a message means an empty request
 
-This is separate from trick [keyword activation](#keyword-activated) - keywords activate or deactivate tricks for the current request, while **prompt keywords** are commands to petsitter that bypass the model entirely.
+This is separate from trick [keyword activation](#activation) - keywords activate or deactivate tricks for the current request, while **prompt keywords** are commands to petsitter that bypass the model entirely.
 
 ### How to register a prompt keyword
 
@@ -700,7 +803,8 @@ Tricksets live as JSON files in the `tricksets/` directory:
   },
   "tricks": [
     "tricks/json_mode.py",
-    "tricks/tool_call.py"
+    "tricks/tool_call.py",
+    "pkg:dana/ollama-ctx@0.1.0"
   ],
   "parameters": {},
   "models": {},
@@ -708,6 +812,8 @@ Tricksets live as JSON files in the `tricksets/` directory:
   "loglevel": "INFO"
 }
 ```
+
+Entries are either a path to a `.py` (absolute, or relative to the repo root) or a `pkg:<owner>/<slug>@<version>` spec pointing at a [community trick](#community-tricks) you've installed.
 
 The `parameters` field stores user-defined variables that tricks within the trickset can reference at runtime. The `models` field lets you override model routing for this trickset - each key maps to a `{url, model, key}` object (same format as the global model config), letting different tricksets use different models for the same role. Set `model` or `key` to `false` for passthrough. Manage both via the dashboard or the API.
 
@@ -918,6 +1024,14 @@ Petsitter exposes OpenAI-compatible endpoints plus management endpoints:
 - `GET /api/tricksets/{name}` - Get trickset details
 - `PUT /api/tricksets/{name}` - Update trickset filters, tricks, parameters, models, or logging config (`logfile` / `loglevel`)
 
+**Community index:**
+- `GET /api/registry` - Search the index (`?q=`, `?all=1`, `?refresh=1`); entries are annotated with the installed version
+- `POST /api/registry/install` - Install `{name, version, trickset}` and optionally wire it into a trickset
+- `GET /api/registry/source` - Source of a trick (`?name=&version=`), from disk if installed
+
+**Playground:**
+- `POST /api/playground` - Run `{messages, trickset}` through the real pipeline; returns the reply plus a `trace` of which tricks ran which hooks
+
 A Swagger UI is available at `/docs` and the OpenAPI spec at `/static/openapi.json`.
 
 ## Running Tests
@@ -931,6 +1045,14 @@ pip install -e ".[test]"
 
 # Run tests
 pytest tests/
+```
+
+Two of the suites drive a real browser and need Playwright:
+
+```bash
+pip install playwright && playwright install chromium
+python tests/test_registry_e2e.py     # index parsing, checksums, pkg: loading
+python tests/test_playground_e2e.py   # boots a server against a stub upstream
 ```
 
 ## Example: Using with an Agentic Framework
