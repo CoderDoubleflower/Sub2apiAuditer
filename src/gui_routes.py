@@ -225,11 +225,12 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
 
     async def gui_tricks_unload(request: Request) -> Response:
         data = await request.json()
+        tid = data.get("id", "")
         name = data.get("name", "")
         ts_name = data.get("trickset")
-        if handler.remove_trick(name, ts_name=ts_name):
+        if handler.remove_trick(tid, ts_name=ts_name):
             return JSONResponse({"success": True})
-        return JSONResponse({"success": False, "error": f"Trick '{name}' not found"}, status_code=404)
+        return JSONResponse({"success": False, "error": f"Trick '{name or tid}' not found"}, status_code=404)
     app.add_route("/api/tricks/unload", gui_tricks_unload, methods=["POST"])
 
     async def gui_tricks_reorder(request: Request) -> Response:

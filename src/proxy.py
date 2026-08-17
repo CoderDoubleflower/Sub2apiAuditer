@@ -446,44 +446,38 @@ class ProxyHandler:
         self._persist_ts(ts)
         return trick
 
-    def remove_trick(self, class_name: str, ts_name: str | None = None) -> bool:
-        def _find_trick() -> Trick | None:
-            if ts_name:
-                ts = self.tricksets.get(ts_name)
-                if not ts:
-                    return None
-                for t in ts.tricks:
-                    if type(t).__name__ == class_name:
-                        return t
-                return None
-            for t in self.tricks:
-                if type(t).__name__ == class_name:
-                    return t
+    def remove_trick(self, trick_id: str, ts_name: str | None = None) -> bool:
+        def _find_trick_by_id(ts: Trickset) -> Trick | None:
+            for i, tid in enumerate(ts.trick_ids):
+                if tid == trick_id and i < len(ts.tricks):
+                    return ts.tricks[i]
             return None
-
-        trick = _find_trick()
-        if trick is not None:
-            try:
-                trick.uninstall()
-            except Exception:
-                logger.exception("Trick %s uninstall failed", class_name)
 
         if ts_name:
             ts = self.tricksets.get(ts_name)
             if not ts:
                 return False
-            tid = ts.find_trick_id_by_class(class_name)
-            if tid:
-                removed = ts.remove_trick(tid)
-                if removed:
-                    ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
-                    self._persist_ts(ts)
-                return removed
-            return False
+            trick = _find_trick_by_id(ts)
+            if trick is not None:
+                try:
+                    trick.uninstall()
+                except Exception:
+                    logger.exception("Trick %s uninstall failed", trick_id)
+            removed = ts.remove_trick(trick_id)
+            if removed:
+                ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, trick_id)
+                self._persist_ts(ts)
+            return removed
+
         for ts in self.tricksets.values():
-            tid = ts.find_trick_id_by_class(class_name)
-            if tid and ts.remove_trick(tid):
-                ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, class_name)
+            trick = _find_trick_by_id(ts)
+            if trick is not None:
+                try:
+                    trick.uninstall()
+                except Exception:
+                    logger.exception("Trick %s uninstall failed", trick_id)
+            if ts.remove_trick(trick_id):
+                ts.get_logger().info("trickset '%s': uninstalled %s", ts.name, trick_id)
                 self._persist_ts(ts)
                 return True
         return False

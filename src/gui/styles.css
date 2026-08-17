@@ -320,6 +320,8 @@ header .nav a:hover { background: #1a2a4d; }
   gap: 6px;
 }
 
+.actions .trigger-word { margin-left: 0; }
+
 .btn-gear { padding: 3px 7px; font-size: 13px; line-height: 1; }
 
 /* trick config modal */

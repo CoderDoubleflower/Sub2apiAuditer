@@ -174,7 +174,9 @@ class TestServerEndpoints:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             r = await ac.post("/api/tricks/load", json={"path": "tricks/json_mode.py"})
             assert r.status_code == 200
-            r = await ac.post("/api/tricks/unload", json={"name": "JsonModeTrick"})
+            loaded = (await ac.get("/api/tricks")).json()
+            jmt = next(t for t in loaded if t["name"] == "JsonModeTrick")
+            r = await ac.post("/api/tricks/unload", json={"id": jmt["id"]})
             assert r.status_code == 200
 
         app2 = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
