@@ -30,7 +30,7 @@ def resolve_path(path: str) -> Path:
 
     Three forms are accepted:
 
-    * ``pkg:<owner>/<slug>@<version>`` — a trick installed from the community
+    * ``pkg:<owner>/<slug>@<version>``, a trick installed from the community
       index, resolved under ``<config_dir>/tricks/``.  Portable between
       machines, which plain paths are not.
     * an absolute or relative path to a ``.py``
@@ -42,7 +42,7 @@ def resolve_path(path: str) -> Path:
     if spec is not None:
         name, version = spec
         if version is None:
-            # No pin — take the newest installed version of that package.
+            # No pin, so take the newest installed version of that package.
             candidates = [e for e in registry.list_installed(config_dir())
                           if e["name"] == name]
             if not candidates:

@@ -494,7 +494,7 @@ function renderRemoteTrick(t) {
   if (t.installed === t.version) {
     action = `<button class="btn btn-neutral btn-sm" onclick="addInstalled(${a},${v})" title="Add this installed trick to the selected trickset">Add</button>`;
   } else if (t.installed) {
-    action = `<button class="btn btn-neutral btn-sm" onclick="installFromIndex(${a},${v})" title="Installed ${escapeHtml(t.installed)} \u2014 update to ${escapeHtml(t.version)}">Update</button>`;
+    action = `<button class="btn btn-neutral btn-sm" onclick="installFromIndex(${a},${v})" title="Installed ${escapeHtml(t.installed)}, update to ${escapeHtml(t.version)}">Update</button>`;
   } else {
     action = `<button class="btn btn-neutral btn-sm" onclick="installFromIndex(${a},${v})" title="Download, verify the checksum, and add to the selected trickset">Install</button>`;
   }
@@ -769,7 +769,7 @@ function renderTrace(d) {
     const pill = document.createElement('span');
     pill.className = 'pg-pill dormant';
     pill.textContent = name.replace(/Trick$/, '');
-    pill.title = 'Did not fire \u2014 needs keyword: ' + needs.join(', ');
+    pill.title = 'Did not fire, needs keyword: ' + needs.join(', ');
     wrap.appendChild(pill);
   }
 

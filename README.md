@@ -136,13 +136,13 @@ It works on `/v1/chat/completions` and `/p/<host>/.../chat/completions`, and hon
 
 ## Community Tricks
 
-Tricks are shareable. Anyone can publish one, and they show up in everyone's dashboard within the hour — in the **Available Tricks** list on the Tricks tab, next to your local ones.
+Tricks are shareable. Anyone can publish one, and they show up in everyone's dashboard within the hour, in the **Available Tricks** list on the Tricks tab, next to your local ones.
 
 **There is no registry server.** The index is a static `index.json` in [day50-dev/tricks](https://github.com/day50-dev/tricks), rebuilt hourly by a GitHub Action that crawls public repos carrying the topic `petsitter-trick`. No accounts, no approval queue, nothing to keep running.
 
 ### Installing
 
-From the dashboard, hit **Install** on any community entry — it downloads, verifies the checksum, and adds it to the selected trickset. Or from the CLI:
+From the dashboard, hit **Install** on any community entry. It downloads, verifies the checksum, and adds it to the selected trickset. Or from the CLI:
 
 ```bash
 pet search tool                  # search the index
@@ -162,7 +162,7 @@ Installed tricks land at `<config>/tricks/<owner>/<slug>/<version>.py`, and tric
 }
 ```
 
-The `pkg:` form is what makes a trickset portable — the same JSON works on another machine, where a `/home/you/...` path would not. Omit `@version` and the newest installed version is used.
+The `pkg:` form is what makes a trickset portable. The same JSON works on another machine, where a `/home/you/...` path would not. Omit `@version` and the newest installed version is used.
 
 Point at a different index (a private one for your org, say) with `PET_REGISTRY_INDEX`, either an `https://` or a `file://` URL. The index is cached for an hour; a stale cache is preferred to an error, so the list still works offline.
 
@@ -171,7 +171,7 @@ Point at a different index (a private one for your org, say) with `PET_REGISTRY_
 Three steps, no ceremony:
 
 1. **Put a `__version__` on your Trick subclass.** Semver, bumped whenever the file changes.
-2. **Push it to a public GitHub repo** — root or a `tricks/` directory, as many tricks per repo as you like.
+2. **Push it to a public GitHub repo.** Root or a `tricks/` directory, as many tricks per repo as you like.
 3. **Add the topic:** `gh repo edit --add-topic petsitter-trick`
 
 `pet publish tricks/my_trick.py` runs steps 2 and 3 for you and checks step 1 first.
@@ -183,7 +183,7 @@ class OllamaCtxTrick(Trick):
     __display_name__ = "Ollama Context Clamp"
 ```
 
-Everything in the index is derived from that file and the GitHub API — you never type a checksum, a date, or an author:
+Everything in the index is derived from that file and the GitHub API. You never type a checksum, a date, or an author:
 
 | Field | Where it comes from |
 |-------|---------------------|
@@ -195,22 +195,22 @@ Everything in the index is derived from that file and the GitHub API — you nev
 | `sha256` | computed from those bytes; `pet install` refuses on a mismatch |
 | `repo`, `stars`, `license`, `updated` | the GitHub API |
 
-Names can't collide between authors, because your GitHub login is the namespace — so there is nothing for anyone to adjudicate and publishing needs no permission. The crawler parses candidate files with `ast`; it never imports or executes them.
+Names can't collide between authors, because your GitHub login is the namespace, so there is nothing for anyone to adjudicate and publishing needs no permission. The crawler parses candidate files with `ast`; it never imports or executes them.
 
-To update, bump `__version__` and push. To unpublish, delete the repo or drop the topic — anyone who already installed it keeps their copy, since the file is on their disk.
+To update, bump `__version__` and push. To unpublish, delete the repo or drop the topic. Anyone who already installed it keeps their copy, since the file is on their disk.
 
 `featured.json` in the index repo controls which tricks appear before you click **Show N more community tricks**. It's promotion, not permission: nothing is ever kept out of the index for being unfeatured.
 
-> A trick is Python that runs inside petsitter with your API keys, the same trust model as any pip package. `pet cat` and the dashboard's **Read** button exist because a trick is one short file — a good deal more reviewable than the average dependency.
+> A trick is Python that runs inside petsitter with your API keys, the same trust model as any pip package. `pet cat` and the dashboard's **Read** button exist because a trick is one short file, a good deal more reviewable than the average dependency.
 
 ## Try It
 
-The speech-bubble button in the header opens a conversation panel docked over the dashboard. Type a message and it goes through `chat_completions()` exactly as a real client's would — same trickset matching, same keyword gating, same hooks, same upstream. It is not a simulation.
+The speech-bubble button in the header opens a conversation panel docked over the dashboard. Type a message and it goes through `chat_completions()` exactly as a real client's would: same trickset matching, same keyword gating, same hooks, same upstream. It is not a simulation.
 
 What comes back with each reply:
 
 - **A pill per trick.** Bright means it changed something, and the tooltip lists the stages it ran (`Ran: system_prompt, post_hook`). Dim means it was loaded but did nothing.
-- **Why a trick stayed quiet.** A keyword-gated trick that didn't fire reads `Did not fire — needs keyword: banana`.
+- **Why a trick stayed quiet.** A keyword-gated trick that didn't fire reads `Did not fire, needs keyword: banana`.
 - **Timing and tokens**, next to the trickset that handled it.
 - **The rows light up.** Tricks that actually did something pulse in the Loaded Tricks list, so you can watch a reorder or a config change take effect.
 
@@ -456,6 +456,23 @@ The method receives the text after `mycommand: ` and can return:
 
 ## Reference Templates
 
+Tricks are managed with `pet` and grouped into [tricksets](#tricksets); there are no
+per-trick command-line flags. Point petsitter at a model once, make a trickset,
+and add tricks to it:
+
+```bash
+pet model default url http://localhost:11434
+pet model default model qwen3:8b
+
+pet new mine                    # create a trickset (X-Title '*', Model '*')
+pet add mine json_mode          # add a trick to it
+petsitter                       # start; settings come from the config file
+```
+
+Every example below assumes that, so it only shows the `pet add` line. Swap
+`mine` for whichever trickset you're building, or use the dashboard's
+Available Tricks list instead.
+
 ### Output Control
 
  * [JSON Mode](#json-mode) - Enforce valid JSON output
@@ -495,7 +512,7 @@ The method receives the text after `mycommand: ` and can return:
 Enforces valid JSON output by adding formatting instructions to the system prompt, stripping markdown code blocks, and retrying with feedback if the response isn't valid JSON.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/json_mode.py
+pet add mine json_mode
 ```
 
 ### Code Validator
@@ -505,7 +522,7 @@ Enforces valid JSON output by adding formatting instructions to the system promp
 After the model proposes a code change, asks it to describe what the change does, compares the description against the original user request, and retries with feedback if they don't match.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/code_validator.py
+pet add mine code_validator
 ```
 
 ### Tool Calling
@@ -515,7 +532,7 @@ After the model proposes a code change, asks it to describe what the change does
 Enables tool calling for models without native support by injecting tool definitions into the prompt, parsing JSONRPC-style tool call responses, and converting them to OpenAI `tool_calls` format.
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/tool_call.py
+pet add mine tool_call
 ```
 
 ### Conversational Tool
@@ -532,7 +549,8 @@ A conversational approach to tool calling that uses the ANDYBOT persona instead 
 This works well with small models (3B and under) and older models that struggle with reliable JSON output or native `tool_calls`. The conversational flow lets them express intent naturally instead of wrestling with syntax. It also supports inline arguments (`DEAR ANDYBOT, GET_WEATHER location=Paris`), optional parameters, and "I am confused"/"skip" recovery. The persona is only injected when the request actually carries `tools`.
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/conversational_tool.py -t tricks/json_mode.py
+pet add mine conversational_tool
+pet add mine json_mode
 ```
 
 ### MCP Tools
@@ -544,13 +562,11 @@ Injects tools defined in an [mcp.json](https://github.com/sourcey/mcp-schema) fi
 Default path: `~/.config/petsitter/mcp.json`. Use the `mcp` prompt keyword to switch files at runtime.
 
 ```bash
-# Default path
-petsitter -u http://localhost:11434 -t tricks/mcp_tools.py
-
-# With a custom mcp.json
-petsitter -u http://localhost:11434 -t tricks/mcp_tools.py
-# Then: (mcp: /path/to/my-tools.json)
+pet add mine mcp_tools          # reads ~/.config/petsitter/mcp.json
 ```
+
+To point it at a different file, use the `mcp` prompt keyword in a message:
+`(mcp: /path/to/my-tools.json)`.
 
 The `mcp.json` format follows the [MCP spec](https://modelcontextprotocol.io):
 ```json
@@ -612,9 +628,19 @@ ollama pull LFM2.5-230M       # tool-calling (tiny, fast)
 ollama pull Qwen3.5-2B        # response generation
 
 # Each model sees a context optimized for its role
-./petsitter -mc examples/modelset.json \
-            -t tricks/kennel.py
+pet new kennel-demo
+pet add kennel-demo kennel
+
+# KennelTrick needs three model roles; scope them to this trickset
+pet model thinker  url http://localhost:11434 --trickset kennel-demo
+pet model thinker  model VibeThinker-3B-GGUF:q4_K_M --trickset kennel-demo
+pet model toolcall url http://localhost:11434 --trickset kennel-demo
+pet model toolcall model LFM2.5-230M --trickset kennel-demo
+pet model default  url http://localhost:11434 --trickset kennel-demo
+pet model default  model Qwen3.5-2B --trickset kennel-demo
 ```
+
+The Models tab in the dashboard does the same thing with fewer keystrokes.
 
 Pipeline:
 1. **Thinker** gets the conversation + "think step by step" → produces reasoning
@@ -638,8 +664,10 @@ Pipeline per round:
 6. On second disagreement, randomly pick one as fallback
 
 ```bash
-# Needs a modelset with "default" and "consultant" keys
-petsitter -mc modelset.json -t tricks/multiconsult.py
+pet new consult
+pet add consult multiconsult
+pet model consultant url http://localhost:11434 --trickset consult
+pet model consultant model qwen3:8b --trickset consult
 ```
 
 Example `modelset.json`:
@@ -667,7 +695,7 @@ Detects and pseudonymizes sensitive information before it reaches the model, the
 - **Bidirectional vault** - consistent pseudonyms across the session (same secret → same substitute) with automatic restoration in both natural-language responses and tool call arguments
 
 ```bash
-./petsitter -u http://localhost:11434 -t tricks/secrets_protector.py
+pet add mine secrets_protector
 ```
 
 ### Swap Harness
@@ -679,8 +707,7 @@ Browses and swaps system prompts from the [system-prompts-and-models-of-ai-tools
 Use the `swapharness` prompt keyword to navigate the directory tree and select a system prompt file. The selected content is injected into the system prompt on every request until a different file is chosen or the trick is uninstalled.
 
 ```bash
-# Install (clone the repo) first
-petsitter -t swapharness:install
+pet add mine swapharness    # adding it runs install(), which clones the repo
 ```
 
 Once installed, include `(swapharness: path)` in any user message to browse or select a harness:
@@ -701,11 +728,10 @@ Assistant: ✅ Harness set to Cursor Prompts/Rules for All Models.md (2847 chars
 The selected system prompt is prepended to every subsequent request. Run `(swapharness: install)` to clone the repo, or use the lifecycle CLI:
 
 ```bash
-# All lifecycle hooks available via trickname:function
-petsitter -t swapharness:install    # clone the repo
-petsitter -t swapharness:uninstall  # remove the repo
-petsitter -t swapharness:startup    # init per-session state
-petsitter -t swapharness:shutdown   # cleanup session
+pet install swapharness             # clone the repo
+pet uninstall swapharness           # remove the repo
+pet lifecycle swapharness startup   # init per-session state
+pet lifecycle swapharness shutdown  # cleanup session
 ```
 
 ### Self-Improver
@@ -717,7 +743,7 @@ Watches for the prompt keyword `petsitter` in your messages. When it sees `(pets
 This is a reference implementation for the **prompt keywords** pattern (see below).
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/self_improver.py
+pet add mine self_improver
 ```
 
 Example usage:
@@ -737,7 +763,7 @@ Exports the conversation history as an [llcat](https://github.com/day50-dev/llca
 Use the `exportit` prompt keyword in any message to trigger the export:
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/exportit.py
+pet add mine exportit
 ```
 
 ```
@@ -772,7 +798,7 @@ Reads a plain-markdown rules file (AGENTS.md / CLAUDE.md style) and injects its 
 The rules path is configured per-trickset (the scope where petsitter config lives): set the `rules_path` config field on the trick via the dashboard, or switch files at runtime with the `rules` prompt keyword:
 
 ```bash
-petsitter -u http://localhost:11434 -t tricks/rules_file.py
+pet add mine rules_file
 ```
 
 ```
@@ -824,11 +850,12 @@ The Models tab in the dashboard lets you configure model overrides per-trickset:
 ### Using tricksets
 
 ```bash
-# Load a trickset at startup (can be combined with -t)
-petsitter -u http://localhost:11434 \
-          -tc tricksets/opencode.json \
-          -t tricks/json_mode.py
+pet new opencode --x-title 'opencode*' -t json_mode -t tool_call
+petsitter
 ```
+
+Every trickset in `<config>/tricksets/` is loaded at startup, so there is
+nothing to pass on the command line. `pet ts` lists what you have.
 
 ### Managing tricksets at runtime
 
@@ -865,7 +892,7 @@ curl -X POST http://localhost:8080/api/tricksets/unload \
 3. Collect tricks from all matching sets, deduplicating by class name.
 4. Run the pipeline with only those tricks.
 
-The default catch-all trickset matches `{"X-Title": "*", "Model": "*"}` so `--trick` trick works the same as before.
+A trickset created without filters matches `{"X-Title": "*", "Model": "*"}`, so it acts as a catch-all and its tricks run on every request.
 
 The `schema` field in a trickset JSON file records the petsitter version that wrote it. This tells tools how to interpret the file without needing an external lookup table.
 
@@ -954,19 +981,26 @@ A model config JSON file lets you run multi-model tricks like [Kennel](#kennel) 
 }
 ```
 
-The `"default"` key sets the primary model (equivalent to `-u`/`--url` + `-m`/`--model`). Tricks declare what keys they need - for example, KennelTrick requires `["default", "thinker", "toolcall"]`. If a key is missing, petsitter prints a helpful error with the expected format.
+The `"default"` key sets the primary model, the one used when a trick doesn't ask for a specific role. Tricks declare what keys they need - for example, KennelTrick requires `["default", "thinker", "toolcall"]`. If a key is missing, petsitter prints a helpful error with the expected format.
 
 The `model` and `key` fields accept:
 - A string - use as the model name / API key in upstream requests.
 - `false` (boolean) - passthrough, don't set the field at all.
 - `""` (empty string) - explicitly clear the value.
 
+Edit these from the Models tab, or with `pet model`:
+
 ```bash
-# Use a model config instead of -u / -m
-petsitter -mc modelset-example.json -t tricks/kennel.py -l localhost:8080
+pet model                                  # show every role as JSON
+pet model thinker url http://localhost:11434
+pet model thinker model VibeThinker-3B-GGUF:q4_K_M
+pet model toolcall key false               # passthrough: use the client's key
+pet model consultant --remove
 ```
 
-If `-u`/`--url` is also given, it overrides the `"default"` from the model config.
+Add `--trickset <name>` to scope a role to one trickset instead of the global
+config; those overrides live in the trickset's `models` field and win while
+that trickset's tricks are running.
 
 
 

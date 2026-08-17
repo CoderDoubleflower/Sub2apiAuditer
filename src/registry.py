@@ -1,4 +1,4 @@
-"""Community trick index — resolve, fetch, and install shared tricks.
+"""Community trick index. Resolve, fetch, and install shared tricks.
 
 There is no registry server.  The index is a static ``index.json`` built
 hourly by a GitHub Action in day50-dev/tricks, which crawls repos carrying
@@ -8,7 +8,7 @@ that file, caches it, and downloads tricks to
     <config_dir>/tricks/<owner>/<slug>/<version>.py
 
 A trickset refers to an installed trick as ``pkg:<owner>/<slug>@<version>``
-so tricksets stay portable between machines — see ``src/loader.py``.
+so tricksets stay portable between machines. See ``src/loader.py``.
 
 Point somewhere else with ``PET_REGISTRY_INDEX`` (an https:// or file:// URL)
 or a ``registry_index`` key in config.json.
@@ -64,7 +64,7 @@ def split_name(name: str) -> tuple[str, str]:
     m = NAME_RE.match(name.strip())
     if not m:
         raise RegistryError(
-            f"'{name}' is not a package name — expected <owner>/<name>, e.g. dana/ollama-ctx"
+            f"'{name}' is not a package name. Expected <owner>/<name>, e.g. dana/ollama-ctx"
         )
     return m.group("owner"), m.group("slug")
 
@@ -198,7 +198,7 @@ def install(entry: dict, config_dir: Path, force: bool = False) -> tuple[Path, b
     if dest.exists() and not force:
         if _sha256_file(dest) == entry.get("sha256"):
             return dest, False
-        # Same version, different bytes — the disk copy was edited or is stale.
+        # Same version, different bytes. The disk copy was edited or is stale.
         if not force:
             return dest, False
 

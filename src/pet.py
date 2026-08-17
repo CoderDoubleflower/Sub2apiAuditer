@@ -852,7 +852,7 @@ def installed_cmd(json_out: bool) -> None:
         click.echo(json.dumps(items, indent=2))
         return
     if not items:
-        click.echo("nothing installed from the index yet — try 'pet search'")
+        click.echo("nothing installed from the index yet. Try 'pet search'.")
         return
     for i in items:
         click.echo(f"{i['spec']}")
@@ -871,7 +871,7 @@ def publish_cmd(trick: str, repo: str | None, dry_run: bool) -> None:
 
     \b
     Publishing is: push a public repo, add the 'petsitter-trick' topic. The
-    hourly crawler does the rest — there is no server, no account, and nothing
+    hourly crawler does the rest. There is no server, no account, and nothing
     to approve. This command just runs the git and gh steps for you.
     """
     import shutil
@@ -886,10 +886,10 @@ def publish_cmd(trick: str, repo: str | None, dry_run: bool) -> None:
     problems = []
     if not version:
         problems.append(
-            "no __version__ on the Trick subclass — add e.g. __version__ = \"0.1.0\""
+            "no __version__ on the Trick subclass. Add e.g. __version__ = \"0.1.0\""
         )
     if not meta.get("brief"):
-        problems.append("no __brief__ — the index shows it as the one-line description")
+        problems.append("no __brief__. The index shows it as the one-line description.")
     if problems:
         for p in problems:
             click.echo(f"  ✗ {p}")
