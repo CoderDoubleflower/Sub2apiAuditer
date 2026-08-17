@@ -212,6 +212,67 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
             return JSONResponse({"error": str(e)}, status_code=400)
     app.add_route("/api/registry/source", gui_registry_source, methods=["GET"])
 
+    # ---- playground ------------------------------------------------------
+    # A real trip through the pipeline, not a simulation: the same
+    # chat_completions() a client would hit, with tracing switched on so the
+    # dashboard can show which tricks actually did something.
+
+    async def gui_playground(request: Request) -> Response:
+        import time as _time
+        from src.observability import start_trace, reset_trace, get_trace
+
+        data = await request.json()
+        messages = data.get("messages") or []
+        if not messages:
+            return JSONResponse({"error": "no messages"}, status_code=400)
+        ts_name = data.get("trickset") or ""
+
+        payload = {"messages": messages, "stream": False}
+        # Naming a loaded trickset pins the request to it; otherwise the
+        # request goes through normal filter matching, which is the case
+        # you want when you're testing the filters themselves.
+        if ts_name and ts_name in handler.tricksets:
+            payload["model"] = f"trickset/{ts_name}"
+        elif handler.model_name:
+            payload["model"] = handler.model_name
+        if data.get("temperature") is not None:
+            payload["temperature"] = data["temperature"]
+
+        token = start_trace()
+        started = _time.monotonic()
+        try:
+            result = await handler.chat_completions(
+                payload, x_title=data.get("x_title", "petsitter-playground"),
+            )
+            trace = list(get_trace() or [])
+        except Exception as e:
+            trace = list(get_trace() or [])
+            return JSONResponse({
+                "error": f"{type(e).__name__}: {e}",
+                "trace": trace,
+                "elapsed_ms": int((_time.monotonic() - started) * 1000),
+            }, status_code=502)
+        finally:
+            reset_trace(token)
+
+        reply = ""
+        tool_calls = None
+        try:
+            msg = (result.get("choices") or [{}])[0].get("message") or {}
+            reply = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls")
+        except (AttributeError, IndexError, TypeError):
+            reply = ""
+
+        return JSONResponse({
+            "reply": reply,
+            "tool_calls": tool_calls,
+            "trace": trace,
+            "elapsed_ms": int((_time.monotonic() - started) * 1000),
+            "usage": result.get("usage") if isinstance(result, dict) else None,
+        })
+    app.add_route("/api/playground", gui_playground, methods=["POST"])
+
     async def gui_tricks_load(request: Request) -> Response:
         data = await request.json()
         path = data.get("path", "")

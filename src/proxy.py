@@ -14,6 +14,10 @@ from src.observability import (
     get_logger,
     new_request_id,
     request_tag,
+    start_trace,
+    reset_trace,
+    get_trace,
+    trace_event,
     reset_current_trickset,
     reset_request_id,
     set_current_trickset,
@@ -199,6 +203,7 @@ class ProxyHandler:
                 get_logger().debug(
                     "%ssystem_prompt hook: %s (no change)", request_tag(), type(trick).__name__,
                 )
+                trace_event("system_prompt", trick, changed=False)
                 continue
             if getattr(trick, "replace_system_prompt", False):
                 result = addition
@@ -208,6 +213,7 @@ class ProxyHandler:
                 "%ssystem_prompt hook: %s (%d -> %d chars)",
                 request_tag(), type(trick).__name__, before, len(result),
             )
+            trace_event("system_prompt", trick, changed=True, before=before, after=len(result))
         return result
 
     def _apply_pre_hooks(self, context: list, params: dict, tricks: list[Trick] | None = None) -> list:
@@ -221,6 +227,8 @@ class ProxyHandler:
                 "%spre_hook: %s (messages %d -> %d)",
                 request_tag(), type(trick).__name__, before, len(result),
             )
+            trace_event("pre_hook", trick, changed=result is not context or before != len(result),
+                        before=before, after=len(result))
         return result
 
     def _apply_post_hooks(self, context: list, tricks: list[Trick] | None = None) -> list:
@@ -234,6 +242,7 @@ class ProxyHandler:
                 "%spost_hook: %s (messages %d -> %d)",
                 request_tag(), type(trick).__name__, before, len(result),
             )
+            trace_event("post_hook", trick, changed=before != len(result), before=before, after=len(result))
         return result
 
     def _merge_capabilities(self, tricks: list[Trick] | None = None) -> dict:
@@ -376,6 +385,7 @@ class ProxyHandler:
                         "%sprompt keyword %r handled by %s -> response injected",
                         request_tag(), keyword, type(trick).__name__,
                     )
+                    trace_event("prompt_keyword", trick, keyword=keyword, short_circuit=True)
                     return modified, response
 
             break
@@ -402,6 +412,7 @@ class ProxyHandler:
                                     "%skeyword %r activated %s",
                                     request_tag(), kw, type(trick).__name__,
                                 )
+                                trace_event("keyword", trick, keyword=kw)
                 content = re.sub(r' +', ' ', content).strip()
                 msg["content"] = content
                 break
@@ -411,6 +422,11 @@ class ProxyHandler:
             "%sactive tricks (%d): %s",
             request_tag(), len(result), ", ".join(type(t).__name__ for t in result) or "(none)",
         )
+        for trick in result:
+            trace_event("active", trick)
+        for trick in kw_tricks:
+            if trick not in active:
+                trace_event("dormant", trick, needs=list(trick.keywords))
         return result, modified
 
     def get_default_trickset(self) -> Trickset | None:
@@ -628,6 +644,7 @@ class ProxyHandler:
                         "%strickset '%s' selected via model %r -> %d tricks",
                         request_tag(), ts.name, model, len(tricks),
                     )
+                    trace_event("trickset", trickset=ts.name, via="model")
                 else:
                     log.warning(
                         "%smodel %r requested but trickset '%s' not loaded",
@@ -639,6 +656,7 @@ class ProxyHandler:
                     matched_ts_name = matched_ts.name
                     ts_token = set_current_trickset(matched_ts)
                     log = get_logger()
+                    trace_event("trickset", trickset=matched_ts.name, via="filters")
                 elif not tricks:
                     log.info("%sno trickset matched; no tricks active", request_tag())
 
@@ -676,6 +694,7 @@ class ProxyHandler:
                 )
 
             log.info("%scalling upstream: %s", request_tag(), target)
+            trace_event("upstream", url=target, model=upstream_payload.get("model", ""))
             log.debug("%supstream payload: %s", request_tag(), json.dumps(upstream_payload, indent=2))
 
             try:

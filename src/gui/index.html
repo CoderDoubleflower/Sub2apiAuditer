@@ -25,6 +25,9 @@
 <div class="info">
 <span id="info-listen" title="Petsitter listening address"></span>
 <span><span class="label">v</span><span id="info-version">--</span></span>
+<div class="try-btn btn" id="try-btn" onclick="togglePlayground()" title="Try it &mdash; send a message through this trickset">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/></svg>
+</div>
 <div class="exit-btn btn" onclick="shutdownPetsitter()" title="Shutdown &amp; restore configuration">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
 </div>
@@ -507,6 +510,143 @@ async function loadTrick(path) {
   } catch(e) { showToast(e.message, true); }
 }
 
+// ---- playground ----
+// Sends through the real /api/playground pipeline and uses the returned
+// trace to light up the tricks that actually did something.
+let pgMessages = [];
+let pgBusy = false;
+
+function togglePlayground() {
+  const panel = document.getElementById('pg-panel');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? '' : 'none';
+  document.getElementById('try-btn').classList.toggle('open', open);
+  if (open) {
+    updatePgTarget();
+    document.getElementById('pg-text').focus();
+  }
+}
+
+function updatePgTarget() {
+  const el = document.getElementById('pg-target');
+  if (el) el.textContent = selectedTrickset ? '\u2192 ' + selectedTrickset : '';
+}
+
+function clearPlayground() {
+  pgMessages = [];
+  document.getElementById('pg-log').innerHTML =
+    '<div class="pg-hint">Send a message through the selected trickset. Tricks that fire light up in Loaded Tricks.</div>';
+}
+
+function pgKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPlayground(); }
+}
+
+function pgAppend(role, text, extraClass) {
+  const log = document.getElementById('pg-log');
+  const hint = log.querySelector('.pg-hint');
+  if (hint) hint.remove();
+  const div = document.createElement('div');
+  div.className = 'pg-msg ' + (extraClass || role);
+  div.innerHTML = `<div class="pg-role">${escapeHtml(role)}</div><div class="pg-body">${escapeHtml(text)}</div>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+async function sendPlayground() {
+  if (pgBusy) return;
+  const input = document.getElementById('pg-text');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  pgMessages.push({role: 'user', content: text});
+  pgAppend('you', text, 'user');
+
+  pgBusy = true;
+  const btn = document.getElementById('pg-send');
+  btn.disabled = true;
+  const pending = pgAppend('assistant', '\u2026');
+
+  try {
+    const d = await fetchJSON('/api/playground', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({messages: pgMessages, trickset: selectedTrickset})
+    });
+    const reply = d.reply || (d.tool_calls ? JSON.stringify(d.tool_calls, null, 2) : '(empty response)');
+    pending.querySelector('.pg-body').textContent = reply;
+    pending.appendChild(renderTrace(d));
+    pgMessages.push({role: 'assistant', content: reply});
+    flashFiredTricks(d.trace);
+  } catch(e) {
+    pending.className = 'pg-msg error';
+    pending.querySelector('.pg-body').textContent = e.message;
+  } finally {
+    pgBusy = false;
+    btn.disabled = false;
+    document.getElementById('pg-log').scrollTop = document.getElementById('pg-log').scrollHeight;
+    input.focus();
+  }
+}
+
+function renderTrace(d) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pg-trace';
+  const trace = d.trace || [];
+
+  // One pill per trick, labelled with the stages it actually touched.
+  const byTrick = new Map();
+  let tricksetName = '', dormant = new Map();
+  for (const e of trace) {
+    if (e.stage === 'trickset') { tricksetName = e.trickset || ''; continue; }
+    if (e.stage === 'dormant') { dormant.set(e.trick, e.needs || []); continue; }
+    if (!e.trick) continue;
+    if (e.stage === 'active') { if (!byTrick.has(e.trick)) byTrick.set(e.trick, new Set()); continue; }
+    if (!byTrick.has(e.trick)) byTrick.set(e.trick, new Set());
+    if (e.changed !== false) byTrick.get(e.trick).add(e.stage);
+  }
+
+  for (const [name, stages] of byTrick) {
+    const pill = document.createElement('span');
+    pill.className = 'pg-pill';
+    pill.textContent = name.replace(/Trick$/, '');
+    pill.title = stages.size ? 'Ran: ' + [...stages].join(', ') : 'Active, but changed nothing';
+    if (!stages.size) pill.classList.add('dormant');
+    wrap.appendChild(pill);
+  }
+  for (const [name, needs] of dormant) {
+    const pill = document.createElement('span');
+    pill.className = 'pg-pill dormant';
+    pill.textContent = name.replace(/Trick$/, '');
+    pill.title = 'Did not fire \u2014 needs keyword: ' + needs.join(', ');
+    wrap.appendChild(pill);
+  }
+
+  const meta = document.createElement('span');
+  meta.className = 'pg-pill meta';
+  const bits = [];
+  if (tricksetName) bits.push(tricksetName);
+  if (d.elapsed_ms != null) bits.push(d.elapsed_ms + 'ms');
+  if (d.usage && d.usage.total_tokens) bits.push(d.usage.total_tokens + ' tok');
+  meta.textContent = bits.join(' \u00b7 ');
+  if (bits.length) wrap.appendChild(meta);
+  return wrap;
+}
+
+function flashFiredTricks(trace) {
+  const fired = new Set((trace || [])
+    .filter(e => e.trick && e.changed !== false && e.stage !== 'active' && e.stage !== 'dormant')
+    .map(e => e.trick));
+  document.querySelectorAll('#loaded-tricks .trick-item').forEach(el => {
+    if (!fired.has(el.dataset.name)) return;
+    el.classList.remove('fired');
+    void el.offsetWidth;   // restart the animation if it is already running
+    el.classList.add('fired');
+    setTimeout(() => el.classList.remove('fired'), 1500);
+  });
+}
+
 // ---- community index ----
 let browseAll = false;
 
@@ -600,6 +740,7 @@ async function fetchTricksets() {
 async function switchTrickset(name) {
   selectedTrickset = name;
   updateHash();
+  updatePgTarget();
   document.querySelectorAll('#ts-pills .pill[data-name]').forEach(p => p.classList.toggle('active', p.dataset.name === name));
   const isLoaded = !!loadedTricksets[name];
   if (!isLoaded) {
@@ -1216,5 +1357,24 @@ async function saveTrickConfig() {
   } catch(e) { showToast(e.message, true); }
 }
 </script>
+
+<!-- === PLAYGROUND (docked) === -->
+<div class="pg-panel" id="pg-panel" style="display:none">
+<div class="pg-head">
+<span class="pg-title">Try it</span>
+<span class="pg-target" id="pg-target"></span>
+<div class="pg-head-actions">
+<button class="btn btn-sm btn-secondary" onclick="clearPlayground()" title="Clear the conversation">Clear</button>
+<button class="btn btn-sm btn-secondary" onclick="togglePlayground()" title="Close">&#10005;</button>
+</div>
+</div>
+<div class="pg-log" id="pg-log">
+<div class="pg-hint">Send a message through the selected trickset. Tricks that fire light up in Loaded Tricks.</div>
+</div>
+<div class="pg-input">
+<textarea id="pg-text" rows="2" placeholder="Type a message&#8230;  (Enter to send, Shift+Enter for a newline)" spellcheck="false" onkeydown="pgKey(event)"></textarea>
+<button class="btn btn-neutral btn-sm" id="pg-send" onclick="sendPlayground()" title="Send through the pipeline">Send</button>
+</div>
+</div>
 </body>
 </html>

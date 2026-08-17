@@ -48,6 +48,40 @@ def reset_current_trickset(token: contextvars.Token) -> None:
     _current_trickset.reset(token)
 
 
+_trace: contextvars.ContextVar[Any] = contextvars.ContextVar("petsitter_trace", default=None)
+
+
+def start_trace() -> contextvars.Token:
+    """Begin collecting a structured trace of hook activity for this request.
+
+    Only the playground turns this on.  When no trace is active
+    ``trace_event`` is a no-op, so the normal request path is unaffected.
+    """
+    return _trace.set([])
+
+
+def reset_trace(token: contextvars.Token) -> None:
+    _trace.reset(token)
+
+
+def get_trace() -> list[dict] | None:
+    return _trace.get()
+
+
+def trace_event(stage: str, trick: Any = None, **detail) -> None:
+    """Record one pipeline step: which stage, which trick, what changed."""
+    events = _trace.get()
+    if events is None:
+        return
+    entry: dict[str, Any] = {"stage": stage}
+    if trick is not None:
+        # The class name is what the dashboard puts in data-name, so it is
+        # enough to light up the right row without threading ids through.
+        entry["trick"] = trick if isinstance(trick, str) else type(trick).__name__
+    entry.update(detail)
+    events.append(entry)
+
+
 def request_tag() -> str:
     rid = _request_id.get()
     return f"[{rid}] " if rid else ""
