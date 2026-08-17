@@ -1003,9 +1003,15 @@ header .nav a:hover { background: #1a2a4d; }
   box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
   z-index: 60;
   overflow: hidden;
+  resize: both;          /* corner grip; position is persisted on change */
+  min-width: 300px;
+  min-height: 220px;
 }
+.pg-panel.dragging { user-select: none; box-shadow: 0 18px 50px rgba(0, 0, 0, .62); }
 
 .pg-head {
+  cursor: grab;
+  touch-action: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1015,7 +1021,8 @@ header .nav a:hover { background: #1a2a4d; }
 }
 .pg-title { font-size: 12px; font-weight: 600; color: #c8d6e5; }
 .pg-target { font-size: 11px; color: #5a7a95; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pg-head-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.pg-head-actions { display: flex; gap: 4px; flex-shrink: 0; cursor: default; }
+.pg-panel.dragging .pg-head { cursor: grabbing; }
 
 .pg-log { flex: 1; overflow-y: auto; padding: 10px; }
 .pg-hint { font-size: 11px; color: #4a6572; line-height: 1.5; padding: 4px 2px; }

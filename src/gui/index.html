@@ -511,20 +511,145 @@ async function loadTrick(path) {
 }
 
 // ---- playground ----
-// Sends through the real /api/playground pipeline and uses the returned
-// trace to light up the tricks that actually did something.
-let pgMessages = [];
-let pgBusy = false;
+// A docked panel that sends through the real /api/playground pipeline and
+// uses the returned trace to light up the tricks that actually did something.
+// Open state, transcript and geometry all persist so a refresh doesn't lose
+// your place.
+
+const PG_KEY = 'petsitter.playground';
+const PG_MAX_HISTORY = 60;   // keep the tail; this is a scratchpad, not a log
+
+function pgState() {
+  try { return JSON.parse(localStorage.getItem(PG_KEY) || '{}') || {}; }
+  catch(e) { return {}; }
+}
+
+function pgSave(patch) {
+  try { localStorage.setItem(PG_KEY, JSON.stringify({...pgState(), ...patch})); }
+  catch(e) { /* private mode: the panel still works, it just won't remember */ }
+}
 
 function togglePlayground() {
   const panel = document.getElementById('pg-panel');
   const open = panel.style.display === 'none';
+  setPlaygroundOpen(open);
+  pgSave({open});
+}
+
+function setPlaygroundOpen(open) {
+  const panel = document.getElementById('pg-panel');
   panel.style.display = open ? '' : 'none';
   document.getElementById('try-btn').classList.toggle('open', open);
-  if (open) {
-    updatePgTarget();
-    document.getElementById('pg-text').focus();
+  if (!open) return;
+  placePlayground();
+  updatePgTarget();
+  const log = document.getElementById('pg-log');
+  log.scrollTop = log.scrollHeight;
+  document.getElementById('pg-text').focus();
+}
+
+// The panel floats over the dashboard, so it has to be movable or it will
+// always be covering the one thing you wanted to look at. Position is stored
+// as explicit left/top so dragging and resizing behave the same way.
+function placePlayground() {
+  const panel = document.getElementById('pg-panel');
+  let box = pgState().box || null;
+  if (!box) {
+    const r = panel.getBoundingClientRect();
+    box = {x: window.innerWidth - r.width - 16, y: window.innerHeight - r.height - 16,
+           w: r.width, h: r.height};
   }
+  applyPgBox(box);
+}
+
+function applyPgBox(box) {
+  const panel = document.getElementById('pg-panel');
+  const w = Math.max(300, Math.min(box.w || panel.offsetWidth, window.innerWidth - 16));
+  const h = Math.max(220, Math.min(box.h || panel.offsetHeight, window.innerHeight - 16));
+  // Keep a grabbable strip on screen no matter how the window is resized.
+  const x = Math.max(8 - w + 120, Math.min(box.x, window.innerWidth - 120));
+  const y = Math.max(0, Math.min(box.y, window.innerHeight - 40));
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
+  panel.style.left = x + 'px';
+  panel.style.top = y + 'px';
+  panel.style.width = w + 'px';
+  panel.style.height = h + 'px';
+  return {x, y, w, h};
+}
+
+function savePgBox() {
+  const r = document.getElementById('pg-panel').getBoundingClientRect();
+  pgSave({box: {x: r.left, y: r.top, w: r.width, h: r.height}});
+}
+
+function resetPlaygroundPos() {
+  pgSave({box: null});
+  const panel = document.getElementById('pg-panel');
+  panel.style.width = ''; panel.style.height = '';
+  placePlayground();
+  savePgBox();
+}
+
+function initPgDrag() {
+  const panel = document.getElementById('pg-panel');
+  const head = document.getElementById('pg-head');
+  if (!panel || !head) return;
+  let start = null;
+
+  head.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    const r = panel.getBoundingClientRect();
+    start = {px: e.clientX, py: e.clientY, x: r.left, y: r.top, w: r.width, h: r.height};
+    panel.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  // Listen on window rather than the handle: the cursor routinely outruns a
+  // small header during a fast drag.
+  window.addEventListener('pointermove', e => {
+    if (!start) return;
+    applyPgBox({x: start.x + (e.clientX - start.px), y: start.y + (e.clientY - start.py),
+                w: start.w, h: start.h});
+  });
+
+  function end() {
+    if (!start) return;
+    start = null;
+    panel.classList.remove('dragging');
+    savePgBox();
+  }
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+
+  // CSS `resize` gives us the corner grip for free; just persist the result.
+  if (window.ResizeObserver) {
+    let seeded = false;
+    new ResizeObserver(() => {
+      if (!seeded) { seeded = true; return; }
+      if (panel.style.display !== 'none') savePgBox();
+    }).observe(panel);
+  }
+
+  window.addEventListener('resize', () => {
+    if (panel.style.display === 'none') return;
+    const r = panel.getBoundingClientRect();
+    applyPgBox({x: r.left, y: r.top, w: r.width, h: r.height});
+  });
+}
+
+// The transcript is kept as display entries; what gets sent upstream is
+// derived from it, so a restored conversation continues exactly as it was.
+let pgLog = [];
+let pgBusy = false;
+
+function pgApiMessages() {
+  return pgLog.filter(e => e.role === 'you' || e.role === 'assistant')
+              .map(e => ({role: e.role === 'you' ? 'user' : 'assistant', content: e.text}));
+}
+
+function pgPersist() {
+  pgSave({messages: pgLog.slice(-PG_MAX_HISTORY)});
 }
 
 function updatePgTarget() {
@@ -533,25 +658,44 @@ function updatePgTarget() {
 }
 
 function clearPlayground() {
-  pgMessages = [];
-  document.getElementById('pg-log').innerHTML =
-    '<div class="pg-hint">Send a message through the selected trickset. Tricks that fire light up in Loaded Tricks.</div>';
+  pgLog = [];
+  pgPersist();
+  renderPlaygroundLog();
 }
 
 function pgKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPlayground(); }
 }
 
-function pgAppend(role, text, extraClass) {
+function renderPlaygroundLog() {
+  const log = document.getElementById('pg-log');
+  if (!pgLog.length) {
+    log.innerHTML = '<div class="pg-hint">Send a message through the selected trickset. Tricks that fire light up in Loaded Tricks.</div>';
+    return;
+  }
+  log.innerHTML = '';
+  for (const entry of pgLog) log.appendChild(pgNode(entry));
+  log.scrollTop = log.scrollHeight;
+}
+
+function pgNode(entry) {
+  const div = document.createElement('div');
+  div.className = 'pg-msg ' + (entry.role === 'you' ? 'user' : entry.role);
+  div.innerHTML = `<div class="pg-role">${escapeHtml(entry.role)}</div><div class="pg-body"></div>`;
+  div.querySelector('.pg-body').textContent = entry.text;
+  if (entry.result) div.appendChild(renderTrace(entry.result));
+  return div;
+}
+
+function pgPush(entry) {
   const log = document.getElementById('pg-log');
   const hint = log.querySelector('.pg-hint');
   if (hint) hint.remove();
-  const div = document.createElement('div');
-  div.className = 'pg-msg ' + (extraClass || role);
-  div.innerHTML = `<div class="pg-role">${escapeHtml(role)}</div><div class="pg-body">${escapeHtml(text)}</div>`;
-  log.appendChild(div);
+  pgLog.push(entry);
+  const node = pgNode(entry);
+  log.appendChild(node);
   log.scrollTop = log.scrollHeight;
-  return div;
+  return node;
 }
 
 async function sendPlayground() {
@@ -561,31 +705,37 @@ async function sendPlayground() {
   if (!text) return;
 
   input.value = '';
-  pgMessages.push({role: 'user', content: text});
-  pgAppend('you', text, 'user');
+  pgPush({role: 'you', text});
+  const messages = pgApiMessages();
 
   pgBusy = true;
   const btn = document.getElementById('pg-send');
   btn.disabled = true;
-  const pending = pgAppend('assistant', '\u2026');
+  const entry = {role: 'assistant', text: '\u2026'};
+  const node = pgPush(entry);
 
   try {
     const d = await fetchJSON('/api/playground', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages: pgMessages, trickset: selectedTrickset})
+      body: JSON.stringify({messages, trickset: selectedTrickset})
     });
-    const reply = d.reply || (d.tool_calls ? JSON.stringify(d.tool_calls, null, 2) : '(empty response)');
-    pending.querySelector('.pg-body').textContent = reply;
-    pending.appendChild(renderTrace(d));
-    pgMessages.push({role: 'assistant', content: reply});
+    entry.text = d.reply || (d.tool_calls ? JSON.stringify(d.tool_calls, null, 2) : '(empty response)');
+    entry.result = {trace: d.trace, elapsed_ms: d.elapsed_ms, usage: d.usage};
+    node.querySelector('.pg-body').textContent = entry.text;
+    node.appendChild(renderTrace(entry.result));
     flashFiredTricks(d.trace);
   } catch(e) {
-    pending.className = 'pg-msg error';
-    pending.querySelector('.pg-body').textContent = e.message;
+    entry.role = 'error';
+    entry.text = e.message;
+    node.className = 'pg-msg error';
+    node.querySelector('.pg-role').textContent = 'error';
+    node.querySelector('.pg-body').textContent = entry.text;
   } finally {
+    pgPersist();
     pgBusy = false;
     btn.disabled = false;
-    document.getElementById('pg-log').scrollTop = document.getElementById('pg-log').scrollHeight;
+    const log = document.getElementById('pg-log');
+    log.scrollTop = log.scrollHeight;
     input.focus();
   }
 }
@@ -646,6 +796,15 @@ function flashFiredTricks(trace) {
     setTimeout(() => el.classList.remove('fired'), 1500);
   });
 }
+
+// Restore open state, transcript and geometry once the panel markup exists.
+document.addEventListener('DOMContentLoaded', () => {
+  initPgDrag();
+  const st = pgState();
+  pgLog = Array.isArray(st.messages) ? st.messages : [];
+  renderPlaygroundLog();
+  if (st.open) setPlaygroundOpen(true);
+});
 
 // ---- community index ----
 let browseAll = false;
@@ -1360,11 +1519,12 @@ async function saveTrickConfig() {
 
 <!-- === PLAYGROUND (docked) === -->
 <div class="pg-panel" id="pg-panel" style="display:none">
-<div class="pg-head">
+<div class="pg-head" id="pg-head">
 <span class="pg-title">Try it</span>
 <span class="pg-target" id="pg-target"></span>
 <div class="pg-head-actions">
 <button class="btn btn-sm btn-secondary" onclick="clearPlayground()" title="Clear the conversation">Clear</button>
+<button class="btn btn-sm btn-secondary" onclick="resetPlaygroundPos()" title="Snap back to the bottom-right corner">&#8690;</button>
 <button class="btn btn-sm btn-secondary" onclick="togglePlayground()" title="Close">&#10005;</button>
 </div>
 </div>
