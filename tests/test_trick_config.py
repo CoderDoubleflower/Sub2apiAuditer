@@ -7,7 +7,7 @@ import pytest
 from petsitter.trickset import SCHEMA, Trickset
 from petsitter.trick import Trick
 from petsitter.loader import load_trick_from_path
-from tricks.mcp_tools import DEFAULT_MCP_PATH, McpToolsTrick
+from petsitter.tricks.mcp_tools import DEFAULT_MCP_PATH, McpToolsTrick
 
 
 def _load_mcp(tmp_path, mcp_path: str = "") -> Trickset:
@@ -53,7 +53,9 @@ class TestConfigFields:
         from petsitter.gui_routes import _introspect_trick_file
         from pathlib import Path
 
-        info = _introspect_trick_file(Path("tricks/mcp_tools.py"))
+        import petsitter
+        packaged = Path(petsitter.__file__).parent / "tricks" / "mcp_tools.py"
+        info = _introspect_trick_file(packaged)
         assert info["config_fields"]
         assert info["config_fields"][0]["key"] == "mcp_path"
 
@@ -152,7 +154,7 @@ class TestConfigApi:
 
     @pytest.fixture(autouse=True)
     def _isolate(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
 
     async def test_tricks_info_exposes_config(self, monkeypatch, tmp_path):
         from petsitter.server import create_app

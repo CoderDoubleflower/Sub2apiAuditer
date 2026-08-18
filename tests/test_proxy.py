@@ -283,7 +283,7 @@ class TestProxyHandler:
     async def test_conversational_tool_pre_hook_appends_system_prompt(self):
         """ConversationalToolTrick appends its persona to an existing system
         message (with dedup) instead of replacing it."""
-        from tricks.conversational_tool import ConversationalToolTrick
+        from petsitter.tricks.conversational_tool import ConversationalToolTrick
 
         trick = ConversationalToolTrick()
         tools = [{"function": {"name": "get_weather", "parameters": {"properties": {}, "required": []}}}]

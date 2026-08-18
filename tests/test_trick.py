@@ -4,8 +4,8 @@ import json
 import pytest
 
 from petsitter.trick import Trick, callmodel
-from tricks.json_mode import JsonModeTrick
-from tricks.tool_call import ToolCallTrick
+from petsitter.tricks.json_mode import JsonModeTrick
+from petsitter.tricks.tool_call import ToolCallTrick
 
 
 class TestTrick:

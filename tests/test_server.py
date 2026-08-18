@@ -68,7 +68,7 @@ class TestCreateAppDefaults:
     @pytest.mark.asyncio
     async def test_fresh_default_seeds_conversational_and_secrets(self, monkeypatch, tmp_path):
         """A brand-new _default starts with conversational_tool + secrets_protector."""
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[])
         tricks = await self._trick_files(app)
         files = [t["file"] for t in tricks]
@@ -78,7 +78,7 @@ class TestCreateAppDefaults:
     @pytest.mark.asyncio
     async def test_restore_saved_default_preserves_edits(self, monkeypatch, tmp_path):
         """A saved _default.json is restored, not re-seeded."""
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         self._write_saved_default(tmp_path, [
             {"id": "abc123", "file": "tricks/json_mode.py", "enabled": False, "keyword": None},
         ])
@@ -90,7 +90,7 @@ class TestCreateAppDefaults:
     @pytest.mark.asyncio
     async def test_no_restore_without_flag(self, monkeypatch, tmp_path):
         """Without restore_saved, a saved file is ignored."""
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         self._write_saved_default(tmp_path, [
             {"id": "abc123", "file": "tricks/json_mode.py", "enabled": False, "keyword": None},
         ])
@@ -101,7 +101,7 @@ class TestCreateAppDefaults:
     @pytest.mark.asyncio
     async def test_restore_plus_trick_paths_adds_missing_only(self, monkeypatch, tmp_path):
         """CLI -t tricks are added to a restored _default without duplicating."""
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         self._write_saved_default(tmp_path, [
             {"id": "abc123", "file": "tricks/conversational_tool.py", "enabled": True, "keyword": None},
         ])
@@ -118,7 +118,7 @@ class TestCreateAppDefaults:
     @pytest.mark.asyncio
     async def test_missing_saved_file_seeds_defaults(self, monkeypatch, tmp_path):
         """No saved file + restore_saved falls back to the default seed."""
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
         tricks = await self._trick_files(app)
         assert tricks[0]["file"] == "tricks/conversational_tool.py"
@@ -149,7 +149,7 @@ class TestServerEndpoints:
         """A trick loaded via the dashboard survives a restart."""
         from httpx import AsyncClient, ASGITransport
 
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             r = await ac.post("/api/tricks/load", json={"path": "tricks/mcp_tools.py"})
@@ -169,7 +169,7 @@ class TestServerEndpoints:
         """A trick unloaded via the dashboard stays gone after a restart."""
         from httpx import AsyncClient, ASGITransport
 
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path)
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[], restore_saved=True)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             r = await ac.post("/api/tricks/load", json={"path": "tricks/json_mode.py"})
@@ -282,9 +282,9 @@ class TestReadConfig:
     def _monkeypatch_paths(monkeypatch, tmp_path):
         from petsitter import trick as trick_mod
         trick_mod._modelset.clear()
-        monkeypatch.setattr("src.server.CONFIG_DIR", tmp_path)
-        monkeypatch.setattr("src.server.CONFIG_PATH", tmp_path / "config.json")
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path / "tricksets")
+        monkeypatch.setattr("petsitter.server.CONFIG_DIR", tmp_path)
+        monkeypatch.setattr("petsitter.server.CONFIG_PATH", tmp_path / "config.json")
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path / "tricksets")
         (tmp_path / "tricksets").mkdir(parents=True, exist_ok=True)
 
     @pytest.mark.asyncio
@@ -431,7 +431,7 @@ class TestInlineTricksets:
 
     @pytest.mark.asyncio
     async def test_create_app_loads_inline_trickset(self, monkeypatch, tmp_path):
-        monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path / "tricksets")
+        monkeypatch.setattr("petsitter.server.TRICKSETS_DIR", tmp_path / "tricksets")
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=[],
                          trickset_paths=[dict(self.INLINE_TS)])
         from httpx import AsyncClient, ASGITransport
@@ -473,8 +473,8 @@ class TestCLI:
         from click.testing import CliRunner
 
         runner = CliRunner()
-        with patch("src.server.uvicorn.run") as mock_run, \
-             patch("src.server.create_app") as mock_create:
+        with patch("petsitter.server.uvicorn.run") as mock_run, \
+             patch("petsitter.server.create_app") as mock_create:
             mock_create.return_value = None
             result = runner.invoke(cli, list(args))
         return result, mock_run, mock_create

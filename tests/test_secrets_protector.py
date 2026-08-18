@@ -2,7 +2,7 @@
 
 import pytest
 
-from tricks.secrets_protector import SecretsProtectorTrick
+from petsitter.tricks.secrets_protector import SecretsProtectorTrick
 
 
 class TestSecretsProtectorTrick:

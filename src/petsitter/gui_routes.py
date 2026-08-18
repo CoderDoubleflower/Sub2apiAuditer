@@ -124,7 +124,12 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
             for f in sorted(tricks_dir.glob("*.py")):
                 if f.name == "__init__.py":
                     continue
-                result.append(_introspect_trick_file(f))
+                info = _introspect_trick_file(f)
+                # Report built-ins by their portable "tricks/<name>.py" form;
+                # the Load button posts this straight into a trickset, and an
+                # absolute site-packages path would not survive a move.
+                info["path"] = f"tricks/{f.name}"
+                result.append(info)
         return JSONResponse(result)
     app.add_route("/api/tricks/available", gui_tricks_available, methods=["GET"])
 

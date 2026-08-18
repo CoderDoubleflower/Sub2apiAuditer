@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from petsitter.trick import Trick
-from tricks.rules_file import RulesFileTrick
+from petsitter.tricks.rules_file import RulesFileTrick
 
 
 def _write_rules(dirpath: Path, text: str) -> Path:

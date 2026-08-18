@@ -1,9 +1,10 @@
 """End-to-end: metadata extraction -> index -> install -> checksum -> load."""
-import hashlib, json, os, shutil, sys, tempfile
+import hashlib, json, os, pathlib, shutil, sys, tempfile
 from pathlib import Path
 
-sys.path.insert(0, "/home/claude/work/petsitter")
-sys.path.insert(0, "/home/claude/work/tricks-repo")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tricks-index"))   # crawl.py lives there
 
 from petsitter import registry, loader
 import crawl

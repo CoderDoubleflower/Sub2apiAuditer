@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Petsitter CLI entry point."""
 
-from src.server import cli
+import sys
+from pathlib import Path
+
+# Running from a checkout: the package lives under src/, which is not on the
+# path unless this repo was pip-installed. Harmless when it was.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
+from petsitter.server import cli
 
 if __name__ == "__main__":
     cli()

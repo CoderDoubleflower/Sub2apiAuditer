@@ -199,25 +199,25 @@ def _resolve_trick_spec(spec: str) -> str:
         return s
     if s.endswith(".py"):
         return s
-    for base in ("tricks", str(BUILTIN_TRICKS_DIR)):
-        cand = f"{base}/{s}.py"
-        if Path(cand).exists():
-            return cand
+    # Built-ins are always recorded as "tricks/<name>.py", never as the
+    # absolute path they happen to live at. loader.resolve_path() resolves
+    # that form package-relative, so a trickset stays portable between
+    # machines and survives the venv moving.
+    if Path(f"tricks/{s}.py").exists():
+        return f"tricks/{s}.py"
+    if (BUILTIN_TRICKS_DIR / f"{s}.py").exists():
+        return f"tricks/{s}.py"
     return s
 
 
 def _trick_exists(path: str) -> bool:
-    if registry.parse_pkg_spec(path) is not None:
-        try:
-            from petsitter.loader import resolve_path
-            return resolve_path(path).exists()
-        except FileNotFoundError:
-            return False
-    if Path(path).exists():
-        return True
-    if (REPO_ROOT / path).exists():
-        return True
-    return False
+    # Delegate to the loader so the CLI and the runtime agree on what
+    # resolves: cwd, repo root, inside the package, or a pkg: spec.
+    from petsitter.loader import resolve_path
+    try:
+        return resolve_path(path).exists()
+    except FileNotFoundError:
+        return False
 
 
 def _find_trick_index(ts: Trickset, spec: str) -> int | None:

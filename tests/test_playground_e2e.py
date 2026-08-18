@@ -8,8 +8,8 @@ firing highlight.
 import json, os, pathlib, shutil, socket, subprocess, sys, tempfile, threading, time
 import http.server, socketserver
 
-ROOT = pathlib.Path("/home/claude/work/petsitter")
-sys.path.insert(0, str(ROOT))
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
 
 tmp = pathlib.Path(tempfile.mkdtemp())
 cfg = tmp / "config"; (cfg / "tricksets").mkdir(parents=True)
@@ -97,7 +97,7 @@ threading.Thread(target=socketserver.TCPServer(("127.0.0.1", UP_PORT), Upstream)
 
 env = dict(os.environ, PET_CONFIG_DIR=str(cfg), PYTHONPATH=str(ROOT))
 proc = subprocess.Popen(
-    [sys.executable, "-m", "src.server", "-c", str(cfg), "-l", f"127.0.0.1:{APP_PORT}"],
+    [sys.executable, "-m", "petsitter.server", "-c", str(cfg), "-l", f"127.0.0.1:{APP_PORT}"],
     cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 
@@ -159,7 +159,7 @@ try:
         check("dormant pill explains why", "banana" in quiet_title, quiet_title)
         check("timing in the meta pill", any("ms" in x for x in pills), pills)
 
-        pg.screenshot(path="/home/claude/work/playground.png")
+        pg.screenshot(path=str(tmp / "playground.png"))
 
         print("\\n3. the fired highlight lands on the right row")
         fired = pg.evaluate("""() => {
