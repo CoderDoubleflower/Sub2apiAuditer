@@ -5,8 +5,8 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from src.pet import cli
-from src.trickset import Trickset
+from petsitter.pet import cli
+from petsitter.trickset import Trickset
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def pet_env(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _reset_config_override():
     """-c sets module globals; clear them so tests stay isolated."""
-    from src import pet
+    from petsitter import pet
 
     pet._override_config_dir = None
     pet._override_config_path = None
@@ -47,7 +47,7 @@ class TestConfigFlag:
         cfg_dir = tmp_path / "custom"
         result = runner.invoke(cli, ["-c", str(cfg_dir), "ts"])
         assert result.exit_code == 0, result.output
-        from src import pet
+        from petsitter import pet
         assert pet._override_config_dir == cfg_dir
         assert pet._override_config_path == cfg_dir / "config.json"
 
@@ -56,7 +56,7 @@ class TestConfigFlag:
         cfg_file = tmp_path / "another_petsitter_config.conf.json"
         result = runner.invoke(cli, ["-c", str(cfg_file), "ts"])
         assert result.exit_code == 0, result.output
-        from src import pet
+        from petsitter import pet
         assert pet._override_config_path == cfg_file
         assert pet._override_config_dir == tmp_path
 

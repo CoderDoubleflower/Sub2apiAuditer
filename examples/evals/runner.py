@@ -3,7 +3,7 @@
 import sys
 import traceback
 
-from src.proxy import ProxyHandler
+from petsitter.proxy import ProxyHandler
 
 from examples.evals.scorers import (
     score_has_required_keys,

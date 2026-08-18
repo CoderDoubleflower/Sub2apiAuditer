@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.observability import (
+from petsitter.observability import (
     get_logger,
     new_request_id,
     request_tag,
@@ -15,9 +15,9 @@ from src.observability import (
     set_current_trickset,
     set_request_id,
 )
-from src.proxy import ProxyHandler
-from src.trick import Trick
-from src.trickset import Trickset
+from petsitter.proxy import ProxyHandler
+from petsitter.trick import Trick
+from petsitter.trickset import Trickset
 
 
 def create_mock_response(data: dict) -> MagicMock:

@@ -242,7 +242,7 @@ Here is a minimal trick that stops the model from using em-dashes (the long dash
 ```python
 """No Em-Dash trick - replaces em-dashes with hyphens."""
 
-from src.trick import Trick
+from petsitter.trick import Trick
 
 EMDASH = "\u2014"
 

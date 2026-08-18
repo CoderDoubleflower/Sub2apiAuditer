@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from src.proxy import CONFIG_MAGIC, ProxyHandler
-from src.trick import Trick
+from petsitter.proxy import CONFIG_MAGIC, ProxyHandler
+from petsitter.trick import Trick
 
 
 @pytest.fixture(autouse=True)
 def _clean_global_model_config():
     """Reset module-level model config so tests don't inherit state from other files."""
-    import src.trick as trick_mod
+    import petsitter.trick as trick_mod
 
     trick_mod._modelset = {}
     trick_mod._model_url = ""

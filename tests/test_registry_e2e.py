@@ -5,12 +5,12 @@ from pathlib import Path
 sys.path.insert(0, "/home/claude/work/petsitter")
 sys.path.insert(0, "/home/claude/work/tricks-repo")
 
-from src import registry, loader
+from petsitter import registry, loader
 import crawl
 
 TRICK = '''
 """A test trick."""
-from src.trick import Trick
+from petsitter.trick import Trick
 
 class OllamaCtxTrick(Trick):
     __version__ = "0.1.0"

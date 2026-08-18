@@ -5,9 +5,9 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.server import create_app, cli
-from src.trick import Trick
-from src.trickset import Trickset
+from petsitter.server import create_app, cli
+from petsitter.trick import Trick
+from petsitter.trickset import Trickset
 
 
 def create_mock_response(data: dict) -> MagicMock:
@@ -280,7 +280,7 @@ class TestReadConfig:
 
     @staticmethod
     def _monkeypatch_paths(monkeypatch, tmp_path):
-        from src import trick as trick_mod
+        from petsitter import trick as trick_mod
         trick_mod._modelset.clear()
         monkeypatch.setattr("src.server.CONFIG_DIR", tmp_path)
         monkeypatch.setattr("src.server.CONFIG_PATH", tmp_path / "config.json")
@@ -463,7 +463,7 @@ class TestCLI:
     @pytest.fixture(autouse=True)
     def _restore_paths(self):
         """cli() reassigns server path globals; restore them after each test."""
-        from src import server
+        from petsitter import server
 
         orig = (server.CONFIG_DIR, server.CONFIG_PATH, server.TRICKSETS_DIR, server.BACKUPS_DIR)
         yield
@@ -505,7 +505,7 @@ class TestCLI:
         cfg_dir = tmp_path / "custom"
         result, _, mock_create = self._invoke("-c", str(cfg_dir))
         assert result.exit_code == 0
-        from src import server
+        from petsitter import server
         assert server.CONFIG_PATH == cfg_dir / "config.json"
         assert server.TRICKSETS_DIR == cfg_dir / "tricksets"
         call_args = mock_create.call_args
@@ -521,7 +521,7 @@ class TestCLI:
         }) + "\n")
         result, _, mock_create = self._invoke("-c", str(cfg_file))
         assert result.exit_code == 0
-        from src import server
+        from petsitter import server
         assert server.CONFIG_PATH == cfg_file
         assert server.CONFIG_DIR == tmp_path
         call_args = mock_create.call_args

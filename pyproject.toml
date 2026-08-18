@@ -31,8 +31,8 @@ Repository = "https://github.com/day50-dev/petsitter"
 Issues = "https://github.com/day50-dev/petsitter/issues"
 
 [project.scripts]
-petsitter = "src.server:cli"
-pet = "src.pet:cli"
+petsitter = "petsitter.server:cli"
+pet = "petsitter.pet:cli"
 
 [project.optional-dependencies]
 test = [
@@ -41,25 +41,18 @@ test = [
 ]
 
 [tool.hatch.build.targets.wheel]
-# agents/ is imported by src.agent_manager, so it has to ship as a package
-# or the console script dies on import.
-packages = ["src", "tricks", "agents"]
+# One top-level name in site-packages. agents/ and tricks/ live inside the
+# package: `agents` in particular collides with the openai-agents SDK, which
+# installs a top-level package by that exact name.
+packages = ["src/petsitter"]
 
 [tool.hatch.build.targets.wheel.force-include]
-# These are found at runtime relative to the package parent (site-packages),
-# so they have to land beside src/ rather than inside it:
-#   src/server.py     -> ../tricksets  (install_examples)
-#   tricks/self_improver.py -> ../.agents/skills/...  (SKILL.md)
-"tricksets" = "tricksets"
-".agents" = ".agents"
+# The Help tab serves this at runtime, and it lives outside the package.
+"README.md" = "petsitter/README.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/src",
-  "/tricks",
-  "/agents",
-  "/.agents",
-  "/tricksets",
   "/examples",
   "/tests",
   "/README.md",
@@ -68,7 +61,7 @@ include = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["."]
+pythonpath = ["src"]
 
 [build-system]
 requires = ["hatchling"]

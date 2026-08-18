@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from src.trick import Trick
+from petsitter.trick import Trick
 from tricks.rules_file import RulesFileTrick
 
 

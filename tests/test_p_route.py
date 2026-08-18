@@ -5,8 +5,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.proxy import ProxyHandler
-from src.server import _parse_p_path, create_app
+from petsitter.proxy import ProxyHandler
+from petsitter.server import _parse_p_path, create_app
 
 
 class TestParsePPath:

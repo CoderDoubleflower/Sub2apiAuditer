@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from src.trickset import SCHEMA, Trickset
-from src.trick import Trick
-from src.loader import load_trick_from_path
+from petsitter.trickset import SCHEMA, Trickset
+from petsitter.trick import Trick
+from petsitter.loader import load_trick_from_path
 from tricks.mcp_tools import DEFAULT_MCP_PATH, McpToolsTrick
 
 
@@ -50,7 +50,7 @@ class TestConfigFields:
         assert t.alpha == "hello"
 
     def test_available_introspection_includes_config_fields(self, tmp_path):
-        from src.gui_routes import _introspect_trick_file
+        from petsitter.gui_routes import _introspect_trick_file
         from pathlib import Path
 
         info = _introspect_trick_file(Path("tricks/mcp_tools.py"))
@@ -155,7 +155,7 @@ class TestConfigApi:
         monkeypatch.setattr("src.server.TRICKSETS_DIR", tmp_path)
 
     async def test_tricks_info_exposes_config(self, monkeypatch, tmp_path):
-        from src.server import create_app
+        from petsitter.server import create_app
 
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=["tricks/mcp_tools.py"])
         async with self._client(app) as ac:
@@ -165,7 +165,7 @@ class TestConfigApi:
         assert mcp["config"] == {}
 
     async def test_put_config_persists_and_is_returned(self, monkeypatch, tmp_path):
-        from src.server import create_app
+        from petsitter.server import create_app
 
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=["tricks/mcp_tools.py"])
         async with self._client(app) as ac:
@@ -187,7 +187,7 @@ class TestConfigApi:
             assert entry["config"] == {"mcp_path": "/tmp/saved.json"}
 
     async def test_put_config_survives_reload(self, monkeypatch, tmp_path):
-        from src.server import create_app
+        from petsitter.server import create_app
 
         app = create_app(model_url="", model_name=None, api_key="", trick_paths=["tricks/mcp_tools.py"], restore_saved=True)
         async with self._client(app) as ac:

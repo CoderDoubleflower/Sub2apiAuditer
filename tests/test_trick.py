@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from src.trick import Trick, callmodel
+from petsitter.trick import Trick, callmodel
 from tricks.json_mode import JsonModeTrick
 from tricks.tool_call import ToolCallTrick
 

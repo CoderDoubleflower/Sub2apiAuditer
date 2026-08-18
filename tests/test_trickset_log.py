@@ -5,7 +5,7 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.server import create_app
+from petsitter.server import create_app
 
 
 def _write_trickset(path, name, logfile, loglevel="INFO"):

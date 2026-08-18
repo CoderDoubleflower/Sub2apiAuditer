@@ -16,7 +16,7 @@ cfg = tmp / "config"; (cfg / "tricksets").mkdir(parents=True)
 tricks = tmp / "tricks"; tricks.mkdir()
 
 (tricks / "shouty.py").write_text('''
-from src.trick import Trick
+from petsitter.trick import Trick
 
 class ShoutyTrick(Trick):
     __version__ = "1.0.0"
@@ -33,7 +33,7 @@ class ShoutyTrick(Trick):
 ''')
 
 (tricks / "quiet.py").write_text('''
-from src.trick import Trick
+from petsitter.trick import Trick
 
 class QuietTrick(Trick):
     __version__ = "1.0.0"
@@ -46,7 +46,7 @@ class QuietTrick(Trick):
 ''')
 
 (tricks / "inert.py").write_text('''
-from src.trick import Trick
+from petsitter.trick import Trick
 
 class InertTrick(Trick):
     __version__ = "1.0.0"
