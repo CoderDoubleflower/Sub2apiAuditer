@@ -717,25 +717,41 @@ async def _delayed_exit(delay: float = 0.5) -> None:
 
 
 def _get_version() -> str:
+    """Version of the running petsitter.
+
+    Order matters.  Installed metadata is authoritative, because an installed
+    wheel ships no pyproject.toml and ``git describe`` would otherwise run in
+    whatever directory the user happens to be standing in and report some
+    unrelated repo's tag.  The pyproject read covers a source checkout that
+    was never pip-installed; git is the last resort.
+    """
     try:
-        import tomllib
-        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-        return tomllib.loads(pyproject.read_text()).get("project", {}).get("version", "0.0.0")
-    except Exception:
+        return _pkg_version("petsitter")
+    except PackageNotFoundError:
         pass
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            try:
+                import tomllib
+            except ModuleNotFoundError:      # Python 3.10
+                import tomli as tomllib
+            return tomllib.loads(pyproject.read_text()).get("project", {}).get("version", "0.0.0")
+        except Exception:
+            pass
+
     try:
         r = subprocess.run(
             ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=str(Path(__file__).resolve().parent.parent),
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip()
     except Exception:
         pass
-    try:
-        return _pkg_version("petsitter")
-    except PackageNotFoundError:
-        return "0.0.0"
+    return "0.0.0"
 
 
 @click.command()

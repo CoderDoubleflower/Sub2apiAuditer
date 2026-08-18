@@ -42,7 +42,6 @@ The commands mirror the dashboard tabs:
 
 import json
 import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -253,7 +252,23 @@ def _parse_value(val: str) -> Any:
 
 
 def _version() -> str:
+    """Version of the running petsitter.
+
+    Installed metadata first: an installed wheel has no pyproject.toml, and
+    a checkout of a *different* repo in the cwd must not be able to answer
+    this question.  The pyproject read is the fallback for working from a
+    source tree that was never pip-installed.
+    """
     try:
+        from importlib.metadata import version as _pkg_version
+        return _pkg_version("petsitter")
+    except Exception:
+        pass
+    try:
+        try:
+            import tomllib
+        except ModuleNotFoundError:      # Python 3.10
+            import tomli as tomllib
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             return tomllib.load(f).get("project", {}).get("version", "0.0.0")
     except Exception:
@@ -1083,8 +1098,15 @@ def loglevel_cmd(name: str, level: str | None) -> None:
 @click.option("--force", is_flag=True, help="Overwrite existing examples (backs up first)")
 def examples_cmd(force: bool) -> None:
     """Install the example tricksets into the config dir."""
-    from src.server import install_examples
-    results = install_examples(force=force)
+    from src import server
+    # server resolves its config dir in cli(), which never runs when pet
+    # imports it directly. Without this, examples land in the default
+    # ~/.config/petsitter no matter what -c or $PET_CONFIG_DIR say.
+    server.CONFIG_DIR = config_dir()
+    server.CONFIG_PATH = config_path()
+    server.TRICKSETS_DIR = tricksets_dir()
+    server.BACKUPS_DIR = config_dir() / "backups"
+    results = server.install_examples(force=force)
     if not results:
         click.echo("No example tricksets found.")
         return

@@ -1,15 +1,34 @@
 [project]
 name = "petsitter"
-version = "0.8.1"
+version = "0.8.0"
 description = "OpenAI-compatible proxy that adds functionality to models through tricks"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE.MIT" }
+keywords = ["llm", "proxy", "openai", "tool-calling", "middleware", "agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "httpx>=0.25.0",
     "starlette>=0.34.0",
     "uvicorn>=0.24.0",
     "click>=8.1.0",
+    # tomllib landed in the stdlib in 3.11; 3.10 needs the backport
+    "tomli>=2.0.0; python_version < '3.11'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/day50-dev/petsitter"
+Repository = "https://github.com/day50-dev/petsitter"
+Issues = "https://github.com/day50-dev/petsitter/issues"
 
 [project.scripts]
 petsitter = "src.server:cli"
@@ -22,14 +41,27 @@ test = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src", "tricks"]
-include = ["tricksets/*.json", "src/gui/*"]
+# agents/ is imported by src.agent_manager, so it has to ship as a package
+# or the console script dies on import.
+packages = ["src", "tricks", "agents"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# These are found at runtime relative to the package parent (site-packages),
+# so they have to land beside src/ rather than inside it:
+#   src/server.py     -> ../tricksets  (install_examples)
+#   tricks/self_improver.py -> ../.agents/skills/...  (SKILL.md)
+"tricksets" = "tricksets"
+".agents" = ".agents"
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/src",
   "/tricks",
+  "/agents",
+  "/.agents",
   "/tricksets",
+  "/examples",
+  "/tests",
   "/README.md",
   "/LICENSE.MIT",
 ]
