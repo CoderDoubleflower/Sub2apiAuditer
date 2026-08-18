@@ -57,7 +57,7 @@
 <div class="tab-pane active" id="tab-tricks">
 <div class="two-col">
 <div class="card">
-<h2>Loaded Tricks</h2>
+<div class="card-title"><h2>Loaded Tricks</h2></div>
 <div class="section-desc">Active tricks in the current trickset. Drag to reorder, toggle on/off, or remove.</div>
 <div id="loaded-tricks"><div class="loader">Loading...</div></div>
 </div>
@@ -127,7 +127,7 @@
 <div class="tab-pane" id="tab-logs">
 <div class="card">
 <div class="log-controls">
-<h2 style="margin:0">Activity Log</h2>
+<h2>Activity Log</h2>
 
 <select id="level-filter" onchange="changeLogLevel()" title="Filter log entries by level">
 <option value="">All levels</option>
@@ -144,7 +144,7 @@
 
 <div class="card">
 <div class="log-controls">
-<h2 style="margin:0">Trickset Log</h2>
+<h2>Trickset Log</h2>
 <select id="tslog-select" onchange="refreshTricksetLog()" title="Trickset whose log file to view">
 <option value="">Select a trickset</option>
 </select>
@@ -160,7 +160,7 @@
 <!-- === SETTINGS TAB === -->
 <div class="tab-pane" id="tab-settings">
 <div class="card">
-<h2>Settings</h2>
+<div class="card-title"><h2>Settings</h2></div>
 <div class="section-desc">Logging settings for the current trickset (<span id="ts-settings-scope"></span>).</div>
 <div class="settings-group">
 <div class="setting-row">

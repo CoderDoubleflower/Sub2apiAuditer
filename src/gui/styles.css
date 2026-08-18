@@ -109,6 +109,11 @@ header .nav a:hover { background: #1a2a4d; }
   margin-bottom: 10px;
 }
 
+/* The heading row owns the spacing below it, so the h2 inside contributes
+   none. Otherwise a bare <h2> card and a .card-title card sit differently. */
+.card-title h2,
+.log-controls h2 { margin-bottom: 0; }
+
 /* trickset / model scope bar */
 .ts-bar,
 .ms-bar {
