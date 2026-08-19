@@ -1094,3 +1094,72 @@ header .nav a:hover { background: #1a2a4d; }
   70%  { box-shadow: inset 0 0 0 1px #8ab4ff; background: #1f2a45; }
   100% { box-shadow: inset 0 0 0 1px transparent; background: #1a1a33; }
 }
+
+/* ---- responsive: tablet / small screens ---- */
+@media (max-width: 768px) {
+  body { padding: 12px; }
+
+  header { gap: 8px; padding-bottom: 8px; margin-bottom: 12px; }
+  header .info { gap: 8px; }
+
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs { flex-wrap: nowrap; }
+  .tab { white-space: nowrap; padding: 8px 14px 7px; }
+
+  .two-col { grid-template-columns: 1fr; }
+
+  .agents-grid { grid-template-columns: repeat(2, 1fr); }
+
+  .model-entry { grid-template-columns: 1fr; gap: 4px 8px; }
+  .model-entry .key { line-height: normal; }
+
+  .settings-group { grid-template-columns: 1fr; gap: 8px; }
+
+  .log-viewer { height: 240px; }
+
+  .pg-panel { width: calc(100vw - 24px); min-width: 0; max-width: none; }
+
+  .modal { width: 95vw; }
+}
+
+/* ---- responsive: phone ---- */
+@media (max-width: 480px) {
+  body { padding: 8px; font-size: 13px; }
+
+  header { flex-direction: column; align-items: flex-start; }
+  header .nav { width: 100%; justify-content: flex-end; }
+
+  .agents-grid { grid-template-columns: 1fr; }
+
+  .trick-item { flex-wrap: wrap; gap: 6px; }
+  .trick-item .info { flex-basis: 100%; }
+  .trick-item .actions { flex-basis: 100%; justify-content: flex-end; }
+
+  .avail-item { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .avail-item .browse-actions { width: 100%; justify-content: flex-end; }
+
+  .pg-panel {
+    width: calc(100vw - 16px);
+    height: 50vh;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .ts-filters { flex-direction: column; gap: 6px; margin-left: 0; }
+  .ts-filters .ts-delete { margin-left: 0; }
+
+  .model-entry .model-subrow { grid-template-columns: 1fr; }
+
+  .agent-log-content { height: 140px; }
+
+  .log-viewer { height: 200px; font-size: 11px; }
+
+  .card { padding: 12px; }
+
+  .toast { right: 10px; bottom: 10px; left: 10px; text-align: center; }
+}
