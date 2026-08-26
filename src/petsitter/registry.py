@@ -29,6 +29,13 @@ from typing import Any
 
 DEFAULT_INDEX = "https://day50-dev.github.io/tricks/index.json"
 CACHE_TTL = 3600  # the index is rebuilt hourly; no point asking more often
+FAIL_TTL = 300    # after a failed fetch, don't retry for this long
+
+# When the index is unreachable (no network, or it simply isn't published yet)
+# every dashboard poll would otherwise spend a fresh 20s timeout finding that
+# out again. Remember the failure and fail fast instead.
+_last_failure: float = 0.0
+_last_failure_reason: str = ""
 PKG_RE = re.compile(r"^pkg:(?P<owner>[\w.-]+)/(?P<slug>[\w.-]+?)(?:@(?P<version>[\w.\-+]+))?$")
 NAME_RE = re.compile(r"^(?P<owner>[\w.-]+)/(?P<slug>[\w.-]+)$")
 
@@ -116,6 +123,7 @@ def fetch_index(config_dir: Path, config: dict | None = None,
     A stale cache is better than an error: if the network is down but we have
     an old copy, use it and say nothing.  Only a cold cache can fail.
     """
+    global _last_failure, _last_failure_reason
     cache = _cache_path(config_dir)
     if not force and cache.exists():
         age = time.time() - cache.stat().st_mtime
@@ -125,6 +133,9 @@ def fetch_index(config_dir: Path, config: dict | None = None,
             except (json.JSONDecodeError, OSError):
                 pass  # corrupt cache; fall through and refetch
 
+    if not force and _last_failure and (time.time() - _last_failure) < FAIL_TTL:
+        raise RegistryError(_last_failure_reason or "the index was unreachable")
+
     url = index_url(config)
     try:
         raw = _fetch(url)
@@ -133,6 +144,8 @@ def fetch_index(config_dir: Path, config: dict | None = None,
             raise RegistryError(f"{url} is not a petsitter index")
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_bytes(raw)
+        _last_failure = 0.0
+        _last_failure_reason = ""
         return data
     except (RegistryError, json.JSONDecodeError, UnicodeDecodeError) as e:
         if cache.exists():
@@ -140,6 +153,8 @@ def fetch_index(config_dir: Path, config: dict | None = None,
                 return json.loads(cache.read_text())
             except (json.JSONDecodeError, OSError):
                 pass
+        _last_failure = time.time()
+        _last_failure_reason = str(e)
         raise RegistryError(str(e)) from e
 
 

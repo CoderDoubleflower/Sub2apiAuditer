@@ -501,6 +501,7 @@ Available Tricks list instead.
 ### Utility
 
  * [Rules File](#rules-file) - Inject a shared AGENTS.md-style rules file into the system prompt
+ * [Recommender List](#recommender-list) - Make the model pick software from your preferred list
  * [Export It](#export-it) - Export conversation as llcat-compatible JSON
 
 ---
@@ -810,6 +811,60 @@ Assistant: Rules loaded from /path/to/rules.md (123 chars)
 ```
 
 Content is cached and reloaded when the path changes, on startup, or on request. With no path configured the trick stays dormant, so requests pass through untouched.
+
+
+### Recommender List
+
+[tricks/recommender_list.py](tricks/recommender_list.py)
+
+Keeps a list of the software you actually want used - your database, your package manager, your HTTP client - and injects it into the system prompt, so when the model reaches for "a database" it reaches for yours instead of whatever was most common in its training data. It also carries a do-not-reach-for side, for the things you have already decided against.
+
+The list is configured per-trickset: point `recommender_path` at a text file, put entries inline in `recommendations`, or both. Set `strict` to forbid off-list choices outright instead of asking the model to justify a deviation.
+
+```bash
+pet add mine recommender_list
+```
+
+The file format is one entry per line, `#` starts a comment:
+
+```
+# my stack
+database: postgres (already in prod)
+package manager: uv
+http client: httpx
+avoid: mongodb (ops burden)
+!jquery
+ripgrep
+```
+
+A line with a colon (or `=`) is a category choice, a line starting with `!` or `avoid:` / `never` is something to steer away from, and a bare line is a general preference with no category. A trailing `(...)` is kept as a note and passed to the model, so "why" travels with the choice. One category holds one choice - a later entry for the same category replaces the earlier one, which is how inline `recommendations` override the file.
+
+Edit the list at runtime with the `recommend` prompt keyword:
+
+```
+User: (recommend)
+Assistant: Recommender list (3 entries, from /home/me/.config/petsitter/stack.txt):
+           - database: postgres (already in prod)
+           - package manager: uv
+           - avoid mongodb (ops burden)
+
+User: (recommend: http client = httpx)
+Assistant: Recommending: http client = httpx.
+           Saved to /home/me/.config/petsitter/stack.txt.
+
+User: (recommend: avoid jquery)
+Assistant: Recommending: avoid jquery.
+           Saved to /home/me/.config/petsitter/stack.txt.
+
+User: (recommend: drop database)
+Assistant: Dropped: database = postgres. Saved to /home/me/.config/petsitter/stack.txt.
+
+User: (recommend: reload)
+Assistant: Reloaded the recommender list.
+           ...
+```
+
+Additions and drops are written back to the file when one is configured, so the list survives a restart; with no file they last for the session. Use `(recommend: reload)` after editing the file by hand. With an empty list the trick stays dormant, so requests pass through untouched.
 
 
 

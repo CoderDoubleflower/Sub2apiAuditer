@@ -154,7 +154,15 @@ def register_gui_routes(app, handler, api_key, config_path: str | None = None):
                 registry.fetch_index, cfg_dir, None, refresh
             )
         except registry.RegistryError as e:
-            return JSONResponse({"error": str(e), "tricks": []}, status_code=502)
+            # Not a server error. The index is a static file someone else
+            # hosts, and it may simply not be published yet, or the machine
+            # may be offline. The dashboard still has local tricks to show,
+            # so answer 200 with an empty community half.
+            return JSONResponse({
+                "tricks": [], "total": 0, "generated": "",
+                "index_url": registry.index_url(None),
+                "unavailable": str(e),
+            })
         results = registry.search(index, q, featured_only=not show_all and not q)
         installed = {i["name"]: i["version"]
                      for i in registry.list_installed(cfg_dir)}
