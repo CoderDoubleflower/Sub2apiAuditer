@@ -52,6 +52,41 @@ Called after the upstream model responds, with the assistant's response appended
 - Return: Modified context. The last message becomes the final response.
 - Use this to validate output (e.g. JSON parsing), retry with feedback via `callmodel`, detect and reformat tool calls, or transform the response content.
 
+Note that `post_hook` is not given `params`. Anything it needs to know about the request that produced the response comes from the request metadata channel below — **not** from state cached on `self`.
+
+## Request metadata (`petsitter.observability`)
+
+### `request_meta() -> dict`
+
+Per-request metadata, carried alongside the payload for the life of one request. Backed by a `contextvar`, so concurrent requests each get their own and cannot see each other's.
+
+The proxy populates it before any hook runs:
+
+| Key | Value |
+|---|---|
+| `request_id` | Short correlation id, the same one `request_tag()` prints |
+| `payload` | The full incoming request body |
+| `tools` | `payload["tools"]`, or `[]` |
+| `model` | The requested model string |
+| `stream` | Whether the client asked for a stream |
+
+Tricks may also write to it as scratch space to carry their own state from one hook to another within a single request:
+
+```python
+def pre_hook(self, context, params):
+    request_meta()["my_trick_saw_tools"] = bool(params.get("tools"))
+    return context
+
+def post_hook(self, context):
+    if not request_meta().get("my_trick_saw_tools"):
+        return context
+    ...
+```
+
+**Do not use instance attributes for per-request state.** A trick object is shared across every concurrent request in its trickset, so `self._something = ...` in `pre_hook` can be overwritten by another request before `post_hook` reads it. Instance attributes are for configuration and for state that is deliberately long-lived (caches, counters, tallies).
+
+Outside a request — a lifecycle hook, or a direct call in a test — `request_meta()` returns an inert empty dict, so reads are safe and writes are discarded. Tests that exercise `pre_hook`/`post_hook` together should open one explicitly with `start_request_meta()` / `reset_request_meta(token)`.
+
 ### `info(capabilities: dict) -> dict`
 
 Called when building the final response to declare capabilities.

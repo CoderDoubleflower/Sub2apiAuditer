@@ -356,6 +356,41 @@ def info(self, capabilities: dict) -> dict:
     return capabilities
 ```
 
+## Request Metadata
+
+Hooks are handed the conversation, but not everything about the request that produced it — `post_hook` in particular receives only the message list, with no way back to the tools, model, or headers that came with it.
+
+That information travels on a per-request metadata channel. It is backed by a `contextvar`, so every concurrent request gets its own and none can see another's:
+
+```python
+from petsitter.observability import request_meta
+
+def pre_hook(self, context: list, params: dict) -> list:
+    request_meta()["saw_tools"] = bool(params.get("tools"))
+    return context
+
+def post_hook(self, context: list) -> list:
+    if not request_meta().get("saw_tools"):
+        return context
+    ...
+```
+
+The proxy fills it in before any hook runs:
+
+| Key | Value |
+|---|---|
+| `request_id` | Short correlation id — the same one that prefixes this request's log lines |
+| `payload` | The full incoming request body |
+| `tools` | `payload["tools"]`, or `[]` |
+| `model` | The requested model string |
+| `stream` | Whether the client asked for a stream |
+
+Tricks are free to add their own keys, and should, whenever they need to carry something from one hook to another within a single request.
+
+**Do not use instance attributes for per-request state.** A trick object is shared across every concurrent request in its trickset, so a `self._something` written in `pre_hook` can be overwritten by a different request before `post_hook` reads it. Reserve instance attributes for configuration and for state that is deliberately long-lived — caches, counters, tallies.
+
+Outside a request — in a lifecycle hook, or a direct call from a test — `request_meta()` returns an inert empty dict, so reads are safe and writes are discarded.
+
 ## Lifecycle Hooks
 
 Every trick can implement up to 4 lifecycle hooks that the framework calls automatically:
@@ -501,6 +536,7 @@ Available Tricks list instead.
 ### Utility
 
  * [Rules File](#rules-file) - Inject a shared AGENTS.md-style rules file into the system prompt
+ * [Reference Check](#reference-check) - Challenge answers that cite no valid reference from a retrieval tool
  * [Recommender List](#recommender-list) - Make the model pick software from your preferred list
  * [Export It](#export-it) - Export conversation as llcat-compatible JSON
 
@@ -865,6 +901,87 @@ Assistant: Reloaded the recommender list.
 ```
 
 Additions and drops are written back to the file when one is configured, so the list survives a restart; with no file they last for the session. Use `(recommend: reload)` after editing the file by hand. With an empty list the trick stays dormant, so requests pass through untouched.
+
+
+
+### Reference Check
+
+[tricks/reference_check.py](tricks/reference_check.py)
+
+Catches the most common shape of hallucination in a retrieval setup: the model either never consults its reference tool, or consults it, finds nothing useful, and answers from memory anyway — sounding exactly as confident as when it is right.
+
+Every result coming back from a reference-ish tool is stamped with an unforgeable `ref_id`, and the model is required to attribute its claims to those ids. A fabricated id is caught immediately:
+
+```
+User: What is the Cascade valve rated to?
+
+  (model answers "900 PSI", citing <reference_id: #131>)
+  (petsitter: that id was never issued — challenge, content re-presented)
+  (model answers "400 PSI", citing ref_id:d65b74455d76)
+
+Assistant: The Cascade valve is rated to 400 PSI.
+```
+
+```bash
+pet add mine reference_check
+```
+
+**It is invisible.** The stamps exist only in the payload sent upstream; the attribution block exists only in the response coming back; both are gone before anything leaves petsitter. The response body a client receives is byte-identical to what the model produced — no badge, no checkmark, no note about what was validated, even when the check fails. That is a correctness requirement rather than a stylistic one: the output may be JSON, graph triples, or anything else with a parser waiting on the other end, and a trick that pollutes it breaks the consumer (and every structural trick stacked after it, such as [JSON Mode](#json-mode)).
+
+#### How it works
+
+**Stamping.** Petsitter never executes the RAG tool — your harness does. But both halves of the round trip pass through the proxy: the tool call goes out in one response, and the tool result comes back in the *next* request as a `role: "tool"` message. So `pre_hook` stamps the result on its way upstream. Nothing needs to integrate with anything; any RAG tool, MCP server, or harness works untouched.
+
+Structured results keep their structure — the id goes in as a `ref_id` field, so anything parsing the tool output still can. Prose results get a stamp per paragraph. Either way you also get one id for the result as a whole.
+
+**Unforgeable, and stateless.** `ref_id = HMAC(per-process secret, tool_call_id + chunk)[:12]`. The HMAC matters twice over. It is *deterministic*, so re-stamping the same chunk on every turn yields the same id — which it must, because your harness resends its own unstamped transcript each time. And it is *unguessable*, so the model cannot manufacture one. Verification then needs no ledger at all: recompute what was issued from the transcript in hand.
+
+That is also why **loading the trick mid-conversation works retroactively** — the first request after you load it stamps every tool result already in the history. Unloading is equally clean; there is no residue in the transcript.
+
+**The challenge.** If the answer carries no valid id, the trick spends tokens rather than failing. It re-presents the retrieved material with its ids and asks again, up to `max_rounds` times. Three situations, three challenges:
+
+| Situation | What happens |
+|---|---|
+| Cited an id that was never issued | Challenged, and the fabricated id is named |
+| Retrieved content present, nothing attributed | Challenged with the content re-presented |
+| Never called the tool at all | Challenged to go retrieve; if it responds with a tool call, that goes to your harness to execute |
+
+**`ref_id:none` is a first-class answer.** A model that cannot source a claim is expected to say so, and saying so passes the check. This is load-bearing: if the only outcome of failing were punishment, the cheapest escape would be to forge a *better* id — citing a real id that does not support the claim. An honest exit makes honesty the path of least resistance.
+
+If the model still cannot attribute its answer after `max_rounds`, **the answer is passed through untouched.** The trick is a diagnostic, not a blocker.
+
+#### Configuration
+
+| Field | Default | What it does |
+|---|---|---|
+| `tool_patterns` | `search,find,research,reference,lookup,retrieve,query,manual,knowledge,doc,wiki,rag,kb,grep,fetch` | Comma-separated substrings. A tool counts as a reference lookup when any appears in its **name or description** — MCP tools are often named `mcp__ctx7__get` while describing themselves plainly. |
+| `max_rounds` | `3` | Challenges before giving up. |
+| `challenge_missing_call` | `true` | Also challenge answers given without calling a reference tool. The most common failure, and the noisiest check — it fires on any turn that skipped retrieval. |
+
+With no reference-ish tool in the request, the trick is completely dormant.
+
+Per-request state (which tools were in scope, what was stamped) rides the [request metadata channel](#request-metadata) rather than the trick instance, so concurrent requests through the same trickset cannot influence each other's verdicts.
+
+#### Reading the results
+
+Nothing is reported in the response, so the tally comes out of the logger (visible in the dashboard's Logs tab) or on demand:
+
+```
+User: (refcheck)
+Assistant: Reference check: 12 answers checked, 3 challenged, 1 fabricated ids caught,
+           2 claims the model admitted it could not source, 0 passed through after
+           exhausting challenges.
+```
+
+A run that fires **zero** challenges is a real result — it says the model was not guessing, and you can unload the trick.
+
+#### What it does not do
+
+This is a heuristic, and it buys a large reduction rather than a guarantee. A model can cite a perfectly valid id and still misrepresent what that passage says — quote `ref_id:1313` for the reigning monarch and then attach the same id to a claim about cuttlefish. Nothing here catches that.
+
+It is rarer than it sounds, though, and for a structural reason. To cite an id at all the model has to have attended to that span, since the id exists nowhere else; hallucination is largely what happens when generation runs off parametric memory without looking at the context. Misattribution requires reading the chunk closely enough to lift its id and ignoring it closely enough to say something unrelated. So the main effect is less "we caught a liar" than "we forced attention onto the source."
+
+The corollary is worth keeping in mind: the residual errors that survive this check are *more* dangerous per unit than the ones you started with, because they now read as sourced. Catching those needs a per-claim entailment check against the cited chunk — a model call per claim, a different cost class entirely.
 
 
 

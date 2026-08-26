@@ -82,6 +82,37 @@ def trace_event(stage: str, trick: Any = None, **detail) -> None:
     events.append(entry)
 
 
+_request_meta: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "petsitter_request_meta", default=None
+)
+
+
+def start_request_meta(**initial) -> contextvars.Token:
+    """Open the metadata channel that travels alongside a request's payload.
+
+    Hooks see the conversation, but not everything about the request that
+    produced it: ``post_hook`` is handed a message list with no way back to the
+    tools, headers, or model that came with it.  Rather than have each trick
+    stash that on ``self`` - which is shared across concurrent requests and so
+    races - the proxy opens one dict per request here.  Being a contextvar it
+    is per-task, so two requests in flight cannot see each other's.
+
+    Tricks may also use it as scratch space to carry their own state between
+    hooks within a single request.
+    """
+    return _request_meta.set(dict(initial))
+
+
+def reset_request_meta(token: contextvars.Token) -> None:
+    _request_meta.reset(token)
+
+
+def request_meta() -> dict:
+    """The current request's metadata, or an inert dict outside a request."""
+    meta = _request_meta.get()
+    return meta if meta is not None else {}
+
+
 def request_tag() -> str:
     rid = _request_id.get()
     return f"[{rid}] " if rid else ""

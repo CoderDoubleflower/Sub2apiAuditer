@@ -19,9 +19,12 @@ from petsitter.observability import (
     get_trace,
     trace_event,
     reset_current_trickset,
+    request_meta,
     reset_request_id,
+    reset_request_meta,
     set_current_trickset,
     set_request_id,
+    start_request_meta,
 )
 from petsitter.trick import (
     Trick,
@@ -601,6 +604,17 @@ class ProxyHandler:
     async def chat_completions(self, payload: dict, x_title: str = "", upstream_request_url: str = "", forward_headers: dict | None = None) -> dict:
         rid = new_request_id()
         rid_token = set_request_id(rid)
+        # Everything about the request that the hooks are not handed directly.
+        # post_hook in particular only sees messages, so anything it needs to
+        # know about the request that produced them travels here.
+        meta_token = start_request_meta(
+            request_id=rid,
+            payload=payload,
+            x_title=x_title,
+            tools=payload.get("tools") or [],
+            model=payload.get("model", ""),
+            stream=bool(payload.get("stream", False)),
+        )
         ts_token = None
         tricks: list[Trick] = []
         matched_ts_name: str | None = None
@@ -732,6 +746,11 @@ class ProxyHandler:
             log.debug("%scontext after post-hooks: %s", request_tag(), json.dumps(context, indent=2))
 
             result["choices"][0]["message"] = context[-1]
+            # A trick may have turned the answer into a tool call (see
+            # ToolCallTrick, ReferenceCheckTrick). Harnesses that key off
+            # finish_reason rather than the message body need it to agree.
+            if context[-1].get("tool_calls"):
+                result["choices"][0]["finish_reason"] = "tool_calls"
 
             capabilities = self._merge_capabilities(tricks)
             if capabilities:
@@ -742,6 +761,7 @@ class ProxyHandler:
             self._stop_tricks(tricks)
             if ts_token is not None:
                 reset_current_trickset(ts_token)
+            reset_request_meta(meta_token)
             reset_request_id(rid_token)
 
     async def models(self, upstream_url: str = "", forward_headers: dict | None = None) -> dict:
