@@ -34,6 +34,8 @@ The commands mirror the dashboard tabs:
     pet uninstall <trick>           # run a local trick's uninstall() hook
     pet lifecycle <trick> <hook>
     pet model [name] [param] [value]  # show or set a model entry
+    pet model _default > models.json          # back up the whole modelset
+    cat models.json | pet --import model      # restore it (swap modelsets)
     pet logfile <trickset> [path]
     pet loglevel <trickset> [level]
     pet examples [--force]          # install the example tricksets
@@ -42,6 +44,7 @@ The commands mirror the dashboard tabs:
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -371,6 +374,46 @@ def _model_remove(name: str, ts_name: str) -> None:
     click.echo(f"Removed model '{name}' from trickset '{ts_name}'")
 
 
+def _parse_modelset(data: Any) -> dict:
+    """Validate a raw stdin modelset into ``{name: {url, model, key}}``."""
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            "import expects a JSON object mapping model names to entries, "
+            "e.g. {\"default\": {\"url\": \"http://localhost:11434\"}}"
+        )
+    modelset: dict = {}
+    for key, entry in data.items():
+        if not isinstance(entry, dict):
+            raise click.ClickException(
+                f"model '{key}' must be a JSON object, e.g. {{\"url\": \"http://...\"}}"
+            )
+        modelset[str(key)] = dict(entry)
+    return modelset
+
+
+def _import_modelset(modelset: dict, scope: str) -> None:
+    """Replace the whole modelset for a scope with the imported one."""
+    if scope == "_default":
+        cfg = load_config()
+        cfg["modelset"] = modelset
+        entry = modelset.get("default")
+        if isinstance(entry, dict):
+            cfg["model_url"] = entry.get("url", "")
+            cfg["model_name"] = "" if entry.get("model") is False else (entry.get("model") or "")
+            cfg["api_key"] = "" if entry.get("key") is False else (entry.get("key") or "")
+        else:
+            cfg["model_url"] = ""
+            cfg["model_name"] = ""
+            cfg["api_key"] = ""
+        save_config(cfg)
+        click.echo(f"imported modelset ({len(modelset)} model(s)) to _default")
+        return
+    ts = _load_ts(scope)
+    ts.models = dict(modelset)
+    _save_ts(ts)
+    click.echo(f"imported modelset ({len(modelset)} model(s)) to '{scope}'")
+
+
 # --------------------------------------------------------------------------
 # lifecycle helpers
 # --------------------------------------------------------------------------
@@ -402,6 +445,36 @@ def _install_agent_manager():
 # --------------------------------------------------------------------------
 
 
+def _rewrite_import_args(argv: list[str]) -> list[str]:
+    """Translate ``pet --import <obj> [scope]`` into ``pet _import <obj> [scope]``.
+
+    ``--import`` is not a real click option (a subcommand can't follow one), so
+    the tokens are rewritten into the hidden ``_import`` command before click
+    parses anything.  Both ``--import model`` and ``--import=model`` forms work;
+    other tokens pass through untouched so ``-c <path>`` still applies.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(argv)
+    while i < n:
+        a = argv[i]
+        if a == "--import" or a.startswith("--import="):
+            obj = a.split("=", 1)[1] if "=" in a else (
+                argv[i + 1] if i + 1 < n else ""
+            )
+            i += 1 if "=" in a else 2
+            if i < n and not argv[i].startswith("-"):
+                scope = argv[i]
+                i += 1
+            else:
+                scope = "_default"
+            out += ["_import", obj, scope]
+        else:
+            out.append(a)
+            i += 1
+    return out
+
+
 class _PetGroup(click.Group):
     """Group that lists commands in logical sections."""
 
@@ -423,8 +496,16 @@ class _PetGroup(click.Group):
         "pet ts mykit kennel keyword go    # set a prompt keyword override",
         "pet ts mykit kennel config '{\"k\": 1}'   # set per-trick config",
         "pet model default url http://localhost:11434",
+        "pet model _default > models.json      # back up the whole modelset",
+        "cat models.json | pet --import model  # restore it",
         "pet -c another_petsitter_config.conf.json ts",
     )
+
+    def main(self, args=None, **kwargs):
+        if args is None:
+            args = sys.argv[1:]
+        args = _rewrite_import_args(args)
+        return super().main(args=args, **kwargs)
 
     def format_commands(self, ctx, formatter) -> None:
         rows: dict[str, list[tuple[str, str]]] = {title: [] for title, _ in self.COMMAND_SECTIONS}
@@ -1016,6 +1097,7 @@ def model_cmd(name: str | None, param: str | None, value: str | None,
 
     \b
       pet model                            # show all models (JSON)
+      pet model _default                   # same, as a dump for backup/restore
       pet model default                    # show the 'default' entry (JSON)
       pet model default url                # show just the url value
       pet model default url http://...     # set the url value
@@ -1038,6 +1120,10 @@ def model_cmd(name: str | None, param: str | None, value: str | None,
         if param not in MODEL_PARAMS:
             raise click.UsageError(f"unknown param '{param}' (expected one of {', '.join(MODEL_PARAMS)})")
         _model_set(name, param, _parse_value(value), ts_name)
+        return
+
+    if name == "_default" and param is None:
+        click.echo(json.dumps(_global_models(), indent=2))
         return
 
     global_models = _global_models()
@@ -1065,6 +1151,33 @@ def model_cmd(name: str | None, param: str | None, value: str | None,
         click.echo("(unset)")
         return
     click.echo(_val_str(entry[param]))
+
+
+@cli.command("_import", hidden=True)
+@click.argument("obj")
+@click.argument("scope", required=False, default="_default")
+def import_cmd(obj: str, scope: str) -> None:
+    """Import an object from stdin JSON.
+
+    Backing command for ``pet --import`` (the group rewrites it here):
+    ``cat models.json | pet --import model [scope]`` replaces that scope's
+    whole modelset — the inverse of ``pet model _default``.
+    """
+    if not obj:
+        raise click.UsageError("--import needs an object name, e.g. 'pet --import model'")
+    if obj != "model":
+        raise click.ClickException(f"unknown --import object '{obj}' (supported: model)")
+    raw = click.get_text_stream("stdin").read()
+    if not raw.strip():
+        raise click.ClickException(
+            "nothing on stdin — pipe model JSON into 'pet --import model', "
+            "e.g. 'pet model _default > x.json' then 'cat x.json | pet --import model'"
+        )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(f"stdin is not valid JSON: {e}")
+    _import_modelset(_parse_modelset(data), scope)
 
 
 @cli.command("logfile")

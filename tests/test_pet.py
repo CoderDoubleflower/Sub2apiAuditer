@@ -157,6 +157,94 @@ class TestModelCommand:
         assert "not found" in result.output
 
 
+class TestModelImportExport:
+    """pet model _default + pet --import model — modelset backup/restore."""
+
+    def test_export_default_scope(self, runner, pet_env):
+        _invoke(runner, pet_env, "model", "default", "url", "http://localhost:11434")
+        _invoke(runner, pet_env, "model", "thinker", "url", "http://localhost:11435")
+        result = _invoke(runner, pet_env, "model", "_default")
+        data = json.loads(result.output)
+        assert data["default"]["url"] == "http://localhost:11434"
+        assert data["thinker"]["url"] == "http://localhost:11435"
+
+    def test_import_default_scope(self, runner, pet_env):
+        body = json.dumps({"default": {"url": "http://1:2", "model": "m", "key": "k"}})
+        result = runner.invoke(cli, ["--import", "model"], input=body)
+        assert result.exit_code == 0, result.output
+        assert "imported modelset" in result.output
+        data = json.loads((pet_env / "config.json").read_text())
+        assert data["modelset"]["default"] == {"url": "http://1:2", "model": "m", "key": "k"}
+        assert data["model_url"] == "http://1:2"
+        assert data["model_name"] == "m"
+        assert data["api_key"] == "k"
+
+    def test_import_equals_form(self, runner, pet_env):
+        body = json.dumps({"default": {"url": "http://eq"}})
+        result = runner.invoke(cli, ["--import=model"], input=body)
+        assert result.exit_code == 0, result.output
+        data = json.loads((pet_env / "config.json").read_text())
+        assert data["modelset"]["default"]["url"] == "http://eq"
+
+    def test_export_import_roundtrip(self, runner, pet_env):
+        _invoke(runner, pet_env, "model", "default", "url", "http://localhost:11434")
+        _invoke(runner, pet_env, "model", "thinker", "url", "http://localhost:11435")
+        _invoke(runner, pet_env, "model", "thinker", "model", "lfm2.5:latest")
+        backup = _invoke(runner, pet_env, "model", "_default").output
+
+        _invoke(runner, pet_env, "model", "default", "url", "http://something-else")
+        result = runner.invoke(cli, ["--import", "model", "_default"], input=backup)
+        assert result.exit_code == 0, result.output
+
+        restored = _invoke(runner, pet_env, "model", "_default")
+        assert json.loads(restored.output) == json.loads(backup)
+
+    def test_import_clears_when_default_absent(self, runner, pet_env):
+        _invoke(runner, pet_env, "model", "default", "url", "http://old")
+        result = runner.invoke(cli, ["--import", "model"], input='{"thinker": {"url": "http://t"}}')
+        assert result.exit_code == 0, result.output
+        data = json.loads((pet_env / "config.json").read_text())
+        assert data["model_url"] == ""
+        assert data["model_name"] == ""
+        assert data["api_key"] == ""
+
+    def test_import_scoped_to_trickset(self, runner, pet_env):
+        _invoke(runner, pet_env, "new", "demo", "-t", "json_mode")
+        body = json.dumps({"thinker": {"url": "http://t", "model": "m"}})
+        result = runner.invoke(cli, ["--import", "model", "demo"], input=body)
+        assert result.exit_code == 0, result.output
+        ts = json.loads((pet_env / "tricksets" / "demo.json").read_text())
+        assert ts["models"] == {"thinker": {"url": "http://t", "model": "m"}}
+
+    def test_empty_stdin_errors(self, runner, pet_env):
+        result = runner.invoke(cli, ["--import", "model"], input="")
+        assert result.exit_code != 0
+        assert "nothing on stdin" in result.output
+
+    def test_bad_json_errors(self, runner, pet_env):
+        result = runner.invoke(cli, ["--import", "model"], input="not json")
+        assert result.exit_code != 0
+        assert "not valid JSON" in result.output
+
+    def test_non_object_modelset_errors(self, runner, pet_env):
+        result = runner.invoke(cli, ["--import", "model"], input="[1, 2]")
+        assert result.exit_code != 0
+        assert "JSON object" in result.output
+
+    def test_unknown_object_errors(self, runner, pet_env):
+        result = runner.invoke(cli, ["--import", "trickset"], input="{}")
+        assert result.exit_code != 0
+        assert "unknown --import object" in result.output
+
+    def test_import_with_config_flag(self, runner, pet_env):
+        cfg_file = pet_env / "custom" / "config.json"
+        body = json.dumps({"default": {"url": "http://1:2"}})
+        result = runner.invoke(cli, ["-c", str(cfg_file), "--import", "model"], input=body)
+        assert result.exit_code == 0, result.output
+        data = json.loads(cfg_file.read_text())
+        assert data["modelset"]["default"]["url"] == "http://1:2"
+
+
 class TestBasics:
     def test_ls_empty(self, runner, pet_env):
         result = _invoke(runner, pet_env, "ts")

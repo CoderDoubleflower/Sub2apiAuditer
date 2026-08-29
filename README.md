@@ -131,7 +131,7 @@ It works on `/v1/chat/completions` and `/p/<host>/.../chat/completions`, and hon
 | `pet install <owner>/<name>` | Install from the index (a bare name instead runs a local trick's `install()` hook) |
 | `pet installed` | List tricks installed from the index |
 | `pet publish <trick>` | Publish a trick to the index |
-| `pet model` | Show or set model config |
+| `pet model` | Show or set model config; `pet model _default > f.json` / `cat f.json \| pet --import model` backs up and restores the whole modelset |
 | `pet agents` | List, register, unregister harness agents |
 
 ## Community Tricks
@@ -1169,6 +1169,22 @@ pet model thinker model VibeThinker-3B-GGUF:q4_K_M
 pet model toolcall key false               # passthrough: use the client's key
 pet model consultant --remove
 ```
+
+The whole modelset can be dumped and swapped in one step — handy for backups and
+for trying out a model configuration without hand-editing config.json:
+
+```bash
+pet model _default > old-default.json          # back up the modelset
+cat new-model.json | pet --import model        # swap a new one in
+cat old-default.json | pet --import model      # ...and back, whenever you like
+pet --import model <trickset>                  # scope the swap to one trickset
+```
+
+`--import` reads a JSON object mapping model names to `{url, model, key}`
+entries from stdin (exactly what `pet model _default` prints) and replaces that
+scope's modelset wholesale.
+
+
 
 Add `--trickset <name>` to scope a role to one trickset instead of the global
 config; those overrides live in the trickset's `models` field and win while
