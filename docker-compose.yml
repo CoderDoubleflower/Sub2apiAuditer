@@ -1,0 +1,22 @@
+services:
+  sub2api-auditer:
+    build: .
+    image: sub2api-auditer:latest
+    container_name: sub2api-auditer
+    restart: unless-stopped
+    ports:
+      - "${AUDITER_PORT:-8080}:8080"
+    environment:
+      CONFIG_PATH: /data/config.json
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      AUDITER_TOKEN: ${AUDITER_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-2097152}
+      MAX_INPUT_CHARS: ${MAX_INPUT_CHARS:-200000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - sub2api-auditer-data:/data
+
+volumes:
+  sub2api-auditer-data:

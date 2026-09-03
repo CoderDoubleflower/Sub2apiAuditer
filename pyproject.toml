@@ -1,67 +1,57 @@
 [project]
-name = "petsitter"
-version = "0.8.2"
-description = "OpenAI-compatible proxy that adds functionality to models through tricks"
+name = "sub2api-auditer"
+version = "1.0.0"
+description = "将任意 OpenAI 兼容审核模型适配为 sub2api Prompt Audit 节点"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { file = "LICENSE.MIT" }
-keywords = ["llm", "proxy", "openai", "tool-calling", "middleware", "agents"]
+authors = [{ name = "CoderDoubleflower" }]
+keywords = ["sub2api", "prompt-audit", "openai-compatible", "llm", "gateway"]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 dependencies = [
-    "httpx>=0.25.0",
-    "starlette>=0.34.0",
-    "uvicorn>=0.24.0",
-    "click>=8.1.0",
-    # tomllib landed in the stdlib in 3.11; 3.10 needs the backport
-    "tomli>=2.0.0; python_version < '3.11'",
+    "httpx>=0.27.0,<1.0",
+    "starlette>=0.40.0,<1.0",
+    "uvicorn>=0.30.0,<1.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/day50-dev/petsitter"
-Repository = "https://github.com/day50-dev/petsitter"
-Issues = "https://github.com/day50-dev/petsitter/issues"
+Homepage = "https://github.com/CoderDoubleflower/Sub2apiAuditer"
+Repository = "https://github.com/CoderDoubleflower/Sub2apiAuditer"
+Issues = "https://github.com/CoderDoubleflower/Sub2apiAuditer/issues"
 
 [project.scripts]
-petsitter = "petsitter.server:cli"
-pet = "petsitter.pet:cli"
+sub2api-auditer = "sub2api_auditer.app:cli"
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [tool.hatch.build.targets.wheel]
-# One top-level name in site-packages. agents/ and tricks/ live inside the
-# package: `agents` in particular collides with the openai-agents SDK, which
-# installs a top-level package by that exact name.
-packages = ["src/petsitter"]
-
-[tool.hatch.build.targets.wheel.force-include]
-# The Help tab serves this at runtime, and it lives outside the package.
-"README.md" = "petsitter/README.md"
+packages = ["src/sub2api_auditer"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "/src",
-  "/examples",
-  "/tests",
-  "/README.md",
-  "/LICENSE.MIT",
+    "/src/sub2api_auditer",
+    "/tests",
+    "/README.md",
+    "/LICENSE.MIT",
+    "/Dockerfile",
+    "/docker-compose.yml",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["hatchling"]
