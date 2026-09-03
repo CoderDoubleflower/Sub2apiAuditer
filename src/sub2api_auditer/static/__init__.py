@@ -1,1 +1,1 @@
-"""Static assets for the built-in admin UI."""
+"""Embedded administration UI assets."""
