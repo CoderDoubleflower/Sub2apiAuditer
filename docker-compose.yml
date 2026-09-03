@@ -13,6 +13,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-2097152}
       MAX_INPUT_CHARS: ${MAX_INPUT_CHARS:-200000}
+      LOG_CAPACITY: ${LOG_CAPACITY:-100}
+      HTTP_MAX_CONNECTIONS: ${HTTP_MAX_CONNECTIONS:-200}
+      HTTP_MAX_KEEPALIVE: ${HTTP_MAX_KEEPALIVE:-50}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
