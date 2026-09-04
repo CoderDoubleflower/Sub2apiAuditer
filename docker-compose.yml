@@ -1,7 +1,7 @@
 services:
   sub2api-auditer:
-    build: .
-    image: sub2api-auditer:latest
+    image: ghcr.io/coderdoubleflower/sub2apiauditer:latest
+    pull_policy: always
     container_name: sub2api-auditer
     restart: unless-stopped
     ports:
@@ -9,6 +9,7 @@ services:
     environment:
       # 服务运行配置
       CONFIG_PATH: /data/config.json
+      TRACE_DB_PATH: ${TRACE_DB_PATH:-/data/auditer.db}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       AUDITER_TOKEN: ${AUDITER_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -29,5 +30,5 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # 将配置文件持久化到 docker-compose.yml 同级的 ./data 目录。
+      # 当前目录持久化：配置写入 config.json，最近 100 条处理详情写入 auditer.db。
       - ./data:/data
