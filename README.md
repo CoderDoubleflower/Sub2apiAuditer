@@ -20,11 +20,12 @@ Categories: None|Violent|Jailbreak|...
 - 固定使用网页配置的实际审核模型，不受 sub2api 请求中的 `model` 字段影响。
 - 兼容 JSON、`flagged/confidence`、Markdown JSON 代码块和 Qwen3Guard 原生文本。
 - 把模型判定归一化为标准 OpenAI Chat Completions 响应。
-- 最近处理日志采用内存环形缓冲区，默认并最多保留 100 条。
+- 最近 100 条已完成处理详情持久化到 SQLite；重启容器后自动恢复。
 - 每条日志记录四个关键时间点和三个阶段耗时。
 - 内置统计页：吞吐、成功率、平均/P50/P95/最大延迟、阶段耗时、判定分布、错误分布和最慢请求。
 - 使用 Starlette、Uvicorn 和 httpx 异步 I/O，复用上游 HTTP 连接池。
-- 支持 Docker、Docker Compose、健康检查和两层可选令牌鉴权。
+- 官方 Compose 直接使用 `ghcr.io/coderdoubleflower/sub2apiauditer:latest`。
+- 支持 Docker Compose、健康检查和两层可选令牌鉴权。
 
 ## 工作流程
 
@@ -57,7 +58,7 @@ http://服务器地址:8080/
 
 页面包含三个页签：
 
-1. **运行统计**：显示最近日志窗口的性能、吞吐、判定和错误统计。
+1. **运行统计**：显示最近 100 条日志窗口的性能、吞吐、判定和错误统计。
 2. **处理日志**：显示最近 100 条请求的四个时间点、阶段耗时、结果与错误详情。
 3. **节点配置**：管理上游网关、模型、密钥和提示词，并执行连通性与格式测试。
 
@@ -112,9 +113,31 @@ window.addEventListener('message', (event) => {
 
 > 服务响应允许被 iframe 嵌入。公开部署时建议由反向代理限制可嵌入来源，并使用 HTTPS。
 
-## 处理日志与时间定义
+## 处理日志、SQLite 与时间定义
 
-日志默认且最多保留当前进程最近 **100 条**，按新到旧显示。数据仅保存在内存，重启容器或进程后清空；清空日志也会同步清空统计窗口。
+服务默认且最多保留最近 **100 条**处理详情。
+
+运行过程中，正在处理的 Trace 先保存在内存中；当 Auditer 已经把 HTTP 响应完整发送给 sub2api 后，才把这一条完整记录一次性写入 SQLite。Docker Compose 默认数据库路径为：
+
+```text
+/data/auditer.db
+```
+
+宿主机对应：
+
+```text
+./data/auditer.db
+```
+
+SQLite 使用 `WAL` 日志模式与 `synchronous=NORMAL`。这样既能跨容器重启恢复最近 100 条记录，又避免在“收到请求 / 转发上游 / 收到 LLM 回复”等每个阶段同步写磁盘。
+
+需要注意：
+
+- 正常完成或正常返回错误的请求，会在响应发送完成后持久化。
+- 如果进程被强制杀死、宿主机断电等情况发生在请求仍“处理中”，这一条尚未完成的 Trace 可能来不及写入 SQLite。
+- SQLite 只保存处理元数据，不保存完整 Prompt、API Key 或完整模型原始输出。
+- 数据库会自动删除第 101 条及更老的完成记录，始终只保留最近 100 条。
+- `DELETE /api/logs` 会同时清空内存窗口和 SQLite 中的处理记录。
 
 每条记录包含以下四个时间点：
 
@@ -134,7 +157,7 @@ window.addEventListener('message', (event) => {
 总耗时     = sub2api_replied_at - received_at
 ```
 
-展示时间使用 UTC 墙钟时间并精确到毫秒；所有耗时均由 `time.perf_counter_ns()` 单调时钟计算，系统时间/NTP 调整不会制造负延迟。
+展示时间使用 UTC 墙钟时间并精确到毫秒；请求运行期间的耗时均由 `time.perf_counter_ns()` 单调时钟计算，系统时间/NTP 调整不会制造负延迟。完成后会把已经计算好的阶段耗时一并持久化，所以重启后仍可显示原始耗时。
 
 对于在某个阶段之前失败的请求，后续时间点会保持为空。例如连接上游失败时，没有 `llm_replied_at`；服务仍会记录错误码、HTTP 状态和已经发生的阶段。
 
@@ -180,7 +203,7 @@ Authorization: Bearer <ADMIN_TOKEN>
 }
 ```
 
-清空当前实例日志：
+清空处理记录和统计窗口：
 
 ```http
 DELETE /api/logs
@@ -189,7 +212,7 @@ Authorization: Bearer <ADMIN_TOKEN>
 
 ## 统计页
 
-统计数据严格从当前实例的内存日志窗口实时聚合，不维护另一套数据库计数，因此统计页与日志页来源一致。
+统计数据直接从当前最近 100 条窗口实时聚合。服务启动时会先从 SQLite 恢复持久化完成记录，因此容器正常重启后统计页不会从零开始。
 
 包括：
 
@@ -211,13 +234,7 @@ GET /api/statistics
 Authorization: Bearer <ADMIN_TOKEN>
 ```
 
-由于日志是进程内数据：
-
-- 单实例、单 Uvicorn worker 时，页面看到的是该服务实例完整的最近 100 条窗口；
-- 多进程、多容器或多副本部署时，每个 worker/实例各自维护一套窗口；
-- 如果需要跨实例长期统计，应接入外部指标系统或持久化存储，而不是增加同步磁盘写入影响审计热路径。
-
-Docker 默认启动一个 Uvicorn worker，适合保持日志和统计视图一致。
+Docker 默认启动一个 Uvicorn worker，适合保持内存窗口、SQLite 恢复结果和统计视图一致。当前实现不面向多个独立副本共享同一个 SQLite 文件；需要水平扩容时，应改用集中式数据库或指标系统。
 
 ## 模型输出格式
 
@@ -238,25 +255,7 @@ Safety: Unsafe
 Categories: Jailbreak, PII
 ```
 
-并包装成标准 OpenAI Chat Completions envelope：
-
-```json
-{
-  "id": "chatcmpl-audit-...",
-  "object": "chat.completion",
-  "model": "sub2api-auditer",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Safety: Unsafe\nCategories: Jailbreak, PII"
-      },
-      "finish_reason": "stop"
-    }
-  ]
-}
-```
+并包装成标准 OpenAI Chat Completions envelope。
 
 还兼容：
 
@@ -310,23 +309,49 @@ error.code = audit_model_invalid_response
 
 ## Docker Compose 部署
 
+Compose 默认直接拉取 GitHub Container Registry 中的多架构镜像：
+
+```text
+ghcr.io/coderdoubleflower/sub2apiauditer:latest
+```
+
+支持 `linux/amd64` 和 `linux/arm64`。
+
+部署：
+
 ```bash
 git clone https://github.com/CoderDoubleflower/Sub2apiAuditer.git
 cd Sub2apiAuditer
 cp .env.example .env
+
+mkdir -p data
+sudo chown -R 10001:10001 data
+chmod 700 data
+
+docker compose pull
+docker compose up -d
 ```
+
+运行后当前目录中的持久化数据为：
+
+```text
+Sub2apiAuditer/
+├── docker-compose.yml
+├── .env
+└── data/
+    ├── config.json
+    ├── auditer.db
+    ├── auditer.db-wal   # 运行时可能存在
+    └── auditer.db-shm   # 运行时可能存在
+```
+
+`data/` 已在 `.gitignore` 中忽略。`config.json` 包含完整上游 API Key，应当按敏感配置文件保护；`auditer.db` 不保存完整 Prompt 或 API Key。
 
 编辑 `.env`。生产环境建议设置两个不同的长随机令牌：
 
 ```dotenv
 ADMIN_TOKEN=用于保护管理接口的长随机字符串
 AUDITER_TOKEN=用于保护sub2api审核调用的另一个长随机字符串
-```
-
-启动：
-
-```bash
-docker compose up -d --build
 ```
 
 查看日志：
@@ -346,8 +371,11 @@ curl -i http://127.0.0.1:8080/readyz
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
+
+Compose 配置了 `pull_policy: always`，执行 `docker compose up -d` 时也会尝试检查 `latest`，但显式执行 `docker compose pull` 更容易确认是否成功拉到新镜像。
 
 ## sub2api 配置
 
@@ -386,13 +414,14 @@ http://127.0.0.1:8080
 | 变量 | 默认值 | 说明 |
 |---|---:|---|
 | `AUDITER_PORT` | `8080` | Docker 对外映射端口 |
-| `CONFIG_PATH` | `./data/config.json` | 配置文件位置；Docker 中为 `/data/config.json` |
+| `CONFIG_PATH` | `/data/config.json` | 网页配置持久化文件 |
+| `TRACE_DB_PATH` | `/data/auditer.db` | 最近 100 条完成处理详情的 SQLite 数据库 |
 | `ADMIN_TOKEN` | 空 | 保护 `/api/config`、`/api/test`、日志和统计接口 |
 | `AUDITER_TOKEN` | 空 | 保护 `/v1/models` 和 `/v1/chat/completions` |
 | `LOG_LEVEL` | `info` | Uvicorn 日志级别 |
 | `MAX_REQUEST_BODY_BYTES` | `2097152` | Auditer 入站请求体上限 |
 | `MAX_INPUT_CHARS` | `200000` | 单次待审核文本字符上限 |
-| `LOG_CAPACITY` | `100` | 内存日志条数，限制为 10–100 |
+| `LOG_CAPACITY` | `100` | 日志/SQLite 窗口条数，限制为 10–100 |
 | `HTTP_MAX_CONNECTIONS` | `200` | 上游 httpx 最大连接数 |
 | `HTTP_MAX_KEEPALIVE` | `50` | 上游 keep-alive 连接数 |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Uvicorn 信任代理头的来源 |
@@ -420,7 +449,7 @@ http://127.0.0.1:8080
 | `GET` | `/api/status` | `ADMIN_TOKEN` | 运行状态 |
 | `POST` | `/api/test` | `ADMIN_TOKEN` | 网页测试审核 |
 | `GET` | `/api/logs` | `ADMIN_TOKEN` | 最近处理日志 |
-| `DELETE` | `/api/logs` | `ADMIN_TOKEN` | 清空日志与统计窗口 |
+| `DELETE` | `/api/logs` | `ADMIN_TOKEN` | 清空内存与 SQLite 日志 |
 | `GET` | `/api/statistics` | `ADMIN_TOKEN` | 日志窗口统计 |
 | `GET` | `/v1/models` | `AUDITER_TOKEN` | sub2api 节点探测 |
 | `POST` | `/v1/chat/completions` | `AUDITER_TOKEN` | sub2api 审计请求 |
@@ -436,7 +465,10 @@ Auditer 的固定处理开销主要包括 JSON 读取、文本提取、请求体
 - 全异步 HTTP 请求处理；
 - 进程级 httpx 连接池复用；
 - 配置不可变内存快照，热路径不读磁盘；
-- 日志固定大小内存环形缓冲区，不同步写数据库或日志文件；
+- 处理中 Trace 使用内存结构；
+- 响应完整发送给 sub2api 后，再由 Starlette `BackgroundTask` 一次性写 SQLite；
+- SQLite 使用 WAL + `synchronous=NORMAL`；
+- SQLite 只保留最近 100 条完成记录；
 - 极短临界区的内存锁；
 - 请求体与上游响应体增量限长读取；
 - 静态网页资源内存缓存；
@@ -444,7 +476,7 @@ Auditer 的固定处理开销主要包括 JSON 读取、文本提取、请求体
 - 不继承宿主机 `HTTP_PROXY` / `HTTPS_PROXY`；
 - 不对上游失败执行隐式重试，避免重复费用和额外尾延迟。
 
-实际端到端延迟通常主要由审核模型推理和网络往返决定；应以统计页中三个阶段的实测数据判断，不应仅凭实现语言推断瓶颈。
+因此 SQLite 持久化不位于 Auditer 向 sub2api 返回响应之前的关键路径。实际端到端延迟通常主要由审核模型推理和网络往返决定；应以统计页中三个阶段的实测数据判断，不应仅凭实现语言推断瓶颈。
 
 ## 安全说明
 
@@ -453,6 +485,7 @@ Auditer 的固定处理开销主要包括 JSON 读取、文本提取、请求体
 - 配置文件通过临时文件、`fsync` 和原子替换写入，并尝试设置为 `0600`。
 - Docker 容器使用非 root 用户运行。
 - 不记录完整请求正文、Prompt、API Key 或完整模型输出。
+- SQLite 处理日志只包含请求元数据、时间点、耗时、判定与错误信息。
 - 上游响应大小受限，防止异常响应占用过多内存。
 - 生产环境必须设置 `ADMIN_TOKEN` 和 `AUDITER_TOKEN`，并使用 HTTPS 或仅在可信内网开放。
 - 允许 iframe 是本项目的明确用途；公网部署时可在 Nginx/Caddy 层覆盖 CSP，只允许你的 sub2api 域名嵌入。
@@ -467,6 +500,12 @@ source .venv/bin/activate
 pip install -e '.[test]'
 pytest -q
 sub2api-auditer --host 127.0.0.1 --port 8080
+```
+
+如需本地启用 SQLite 日志持久化：
+
+```bash
+export TRACE_DB_PATH=./data/auditer.db
 ```
 
 前端为原生 HTML/CSS/JavaScript，不需要 Node 构建步骤。
