@@ -7,6 +7,7 @@ services:
     ports:
       - "${AUDITER_PORT:-8080}:8080"
     environment:
+      # 服务运行配置
       CONFIG_PATH: /data/config.json
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       AUDITER_TOKEN: ${AUDITER_TOKEN:-}
@@ -16,10 +17,17 @@ services:
       LOG_CAPACITY: ${LOG_CAPACITY:-100}
       HTTP_MAX_CONNECTIONS: ${HTTP_MAX_CONNECTIONS:-200}
       HTTP_MAX_KEEPALIVE: ${HTTP_MAX_KEEPALIVE:-50}
+
+      # 可选：首次启动时通过 .env 提供上游默认配置。
+      # 网页保存配置后，以 /data/config.json 中的配置为准。
+      UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-}
+      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
+      UPSTREAM_MODEL: ${UPSTREAM_MODEL:-}
+      UPSTREAM_TIMEOUT_SECONDS: ${UPSTREAM_TIMEOUT_SECONDS:-20}
+      UPSTREAM_MAX_TOKENS: ${UPSTREAM_MAX_TOKENS:-256}
+      AUDIT_PROMPT: ${AUDIT_PROMPT:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - sub2api-auditer-data:/data
-
-volumes:
-  sub2api-auditer-data:
+      # 将配置文件持久化到 docker-compose.yml 同级的 ./data 目录。
+      - ./data:/data
