@@ -1,6 +1,6 @@
 [project]
 name = "sub2api-auditer"
-version = "1.2.0"
+version = "1.2.1"
 description = "将任意 OpenAI 兼容审核模型适配为 sub2api Prompt Audit 节点"
 readme = "README.md"
 requires-python = ">=3.11"

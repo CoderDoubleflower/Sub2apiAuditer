@@ -7,9 +7,9 @@ services:
     ports:
       - "${AUDITER_PORT:-8080}:8080"
     environment:
-      # 服务运行配置
       CONFIG_PATH: /data/config.json
       TRACE_DB_PATH: ${TRACE_DB_PATH:-/data/auditer.db}
+      BASE_PATH: ${BASE_PATH:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       AUDITER_TOKEN: ${AUDITER_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -18,9 +18,8 @@ services:
       LOG_CAPACITY: ${LOG_CAPACITY:-100}
       HTTP_MAX_CONNECTIONS: ${HTTP_MAX_CONNECTIONS:-200}
       HTTP_MAX_KEEPALIVE: ${HTTP_MAX_KEEPALIVE:-50}
-
-      # 可选：首次启动时通过 .env 提供上游默认配置。
-      # 网页保存配置后，以 /data/config.json 中的配置为准。
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Only used when config.json does not exist; a broken file never falls back.
       UPSTREAM_BASE_URL: ${UPSTREAM_BASE_URL:-}
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:-}
       UPSTREAM_MODEL: ${UPSTREAM_MODEL:-}
@@ -30,5 +29,4 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # 当前目录持久化：配置写入 config.json，最近 100 条处理详情写入 auditer.db。
       - ./data:/data

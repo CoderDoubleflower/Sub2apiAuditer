@@ -4,6 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CONFIG_PATH=/data/config.json \
+    TRACE_DB_PATH=/data/auditer.db \
     HOST=0.0.0.0 \
     PORT=8080
 
